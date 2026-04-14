@@ -4,6 +4,7 @@ import cors from "cors";
 import { connectDB } from "./config/db";
 import webhookRoutes from "./routes/webhooks";
 import userRoutes from "./routes/users";
+import invoiceRoutes from "./routes/invoices";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -33,6 +34,7 @@ app.use(express.json());
 
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/invoices", invoiceRoutes);
 
 // ── Health check ──
 app.get("/api/health", (_req, res) => {

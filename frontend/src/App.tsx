@@ -3,6 +3,9 @@ import { SignedIn, SignedOut, RedirectToSignIn } from "@clerk/clerk-react";
 import { SignInPage } from "@/pages/SignInPage";
 import { SignUpPage } from "@/pages/SignUpPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { CreateInvoicePage } from "./pages/create-invoice/CreateInvoicePage";
+import { InvoiceListPage } from "./pages/invoices/InvoiceListPage";
+import { InvoiceViewPage } from "./pages/invoices/InvoiceViewPage";
 
 export default function App() {
   return (
@@ -16,6 +19,45 @@ export default function App() {
           <>
             <SignedIn>
               <DashboardPage />
+            </SignedIn>
+            <SignedOut>
+              <RedirectToSignIn />
+            </SignedOut>
+          </>
+        }
+      />
+      <Route
+        path="/create"
+        element={
+          <>
+            <SignedIn>
+              <CreateInvoicePage />
+            </SignedIn>
+            <SignedOut>
+              <RedirectToSignIn />
+            </SignedOut>
+          </>
+        }
+      />
+      <Route
+        path="/invoices"
+        element={
+          <>
+            <SignedIn>
+              <InvoiceListPage />
+            </SignedIn>
+            <SignedOut>
+              <RedirectToSignIn />
+            </SignedOut>
+          </>
+        }
+      />
+      <Route
+        path="/invoices/:id"
+        element={
+          <>
+            <SignedIn>
+              <InvoiceViewPage />
             </SignedIn>
             <SignedOut>
               <RedirectToSignIn />
