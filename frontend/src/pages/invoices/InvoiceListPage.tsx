@@ -97,7 +97,7 @@ function getAvatarColor(name: string) {
 
 export function InvoiceListPage() {
   const navigate = useNavigate();
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -122,7 +122,7 @@ export function InvoiceListPage() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!isLoaded || !user) return;
     const fetch = async () => {
       try {
         const data = await getUserInvoices(user.id);

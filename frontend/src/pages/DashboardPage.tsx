@@ -102,7 +102,7 @@ const QUICK_ACTIONS = [
 export function DashboardPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const { syncUser } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
@@ -158,6 +158,7 @@ export function DashboardPage() {
   ];
 
   useEffect(() => {
+    if (!isLoaded || !user) return;
     syncUser();
     if (user) {
       fetchDashboardStats(user.id)
