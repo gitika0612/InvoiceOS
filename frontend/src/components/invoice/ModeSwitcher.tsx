@@ -10,7 +10,7 @@ const modes = [
     id: "chat" as Mode,
     label: "Chat Mode",
     icon: "💬",
-    description: "Describe your invoice in natural language",
+    description: "",
     disabled: false,
   },
   {

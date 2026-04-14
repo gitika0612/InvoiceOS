@@ -473,7 +473,8 @@ export function InvoiceListPage() {
 
                             {/* Delete */}
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setOpenMenuId(null);
                                 setShowDeleteConfirm(inv._id);
                               }}

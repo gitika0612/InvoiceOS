@@ -4,23 +4,26 @@ import { Send } from "lucide-react";
 interface ChatInputProps {
   onSend: (message: string) => void;
   isLoading: boolean;
+  showSuggestions?: boolean;
 }
 
 const SUGGESTIONS = [
   "Invoice Priya for 5 days of Next.js work at ₹10k/day with 18% GST",
   "Bill Rahul for logo design, 3 revisions, ₹25,000 total",
-  "Create invoice for React consulting, 40 hours at ₹2,500/hr",
+  "Create invoice for Kartik of React consulting, 40 hours at ₹2,500/hr",
 ];
 
-export function ChatInput({ onSend, isLoading }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  isLoading,
+  showSuggestions = false,
+}: ChatInputProps) {
   const [input, setInput] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(true);
 
   const handleSend = () => {
     if (!input.trim() || isLoading) return;
     onSend(input.trim());
     setInput("");
-    setShowSuggestions(false);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -31,13 +34,12 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   };
 
   const handleSuggestion = (suggestion: string) => {
-    setInput(suggestion);
-    setShowSuggestions(false);
+    onSend(suggestion);
   };
 
   return (
-    <div className="border-t border-gray-100 bg-white px-4 py-4">
-      {/* Suggestions */}
+    <div className="border-t border-gray-100 bg-white px-4 py-4 flex-shrink-0">
+      {/* Suggestions — only when parent says so */}
       {showSuggestions && (
         <div className="mb-3 flex flex-wrap gap-2">
           {SUGGESTIONS.map((s) => (
@@ -66,7 +68,6 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
             style={{ maxHeight: "120px" }}
           />
         </div>
-
         <button
           onClick={handleSend}
           disabled={!input.trim() || isLoading}

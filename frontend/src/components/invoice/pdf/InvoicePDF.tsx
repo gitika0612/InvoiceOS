@@ -7,7 +7,7 @@ import {
   Svg,
   Path,
 } from "@react-pdf/renderer";
-import { ParsedInvoice } from "./InvoicePreviewCard";
+import { ParsedInvoice } from "../InvoicePreviewCard";
 
 const styles = StyleSheet.create({
   page: {

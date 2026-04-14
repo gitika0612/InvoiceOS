@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Check, Edit2, X, Plus, Trash2 } from "lucide-react";
-import { DownloadPDFButton } from "./DownloadPDFButton";
+import { Check, Edit2, Plus, Trash2 } from "lucide-react";
+import { DownloadPDFButton } from "./pdf/DownloadPDFButton";
 
 export interface LineItem {
   description: string;
@@ -39,7 +39,6 @@ export function InvoicePreviewCard({
   invoice,
   onConfirm,
   onEdit,
-  onDiscard,
   isConfirmed = false,
   invoiceNumber,
   userName,
@@ -142,12 +141,6 @@ export function InvoicePreviewCard({
             {current.clientName}
           </p>
         </div>
-        <button
-          onClick={onDiscard}
-          className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
       </div>
 
       {/* Fields */}

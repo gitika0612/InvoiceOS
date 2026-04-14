@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { SignedIn, SignedOut, RedirectToSignIn } from "@clerk/clerk-react";
-import { SignInPage } from "@/pages/SignInPage";
-import { SignUpPage } from "@/pages/SignUpPage";
+import { SignInPage } from "@/pages/auth/SignInPage";
+import { SignUpPage } from "@/pages/auth/SignUpPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { CreateInvoicePage } from "./pages/create-invoice/CreateInvoicePage";
 import { InvoiceListPage } from "./pages/invoices/InvoiceListPage";

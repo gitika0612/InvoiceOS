@@ -1,6 +1,6 @@
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { Download, Loader2 } from "lucide-react";
-import { ParsedInvoice } from "./InvoicePreviewCard";
+import { ParsedInvoice } from "../InvoicePreviewCard";
 import { InvoicePDF } from "./InvoicePDF";
 
 interface DownloadPDFButtonProps {

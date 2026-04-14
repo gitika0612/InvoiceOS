@@ -1,6 +1,6 @@
 import { pdf } from "@react-pdf/renderer";
 import { createElement } from "react";
-import { InvoicePDF } from "@/components/invoice/InvoicePDF";
+import { InvoicePDF } from "@/components/invoice/pdf/InvoicePDF";
 import { ParsedInvoice } from "@/components/invoice/InvoicePreviewCard";
 
 export async function downloadInvoicePDF(
