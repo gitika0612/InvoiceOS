@@ -178,7 +178,6 @@ export function CreateInvoicePage() {
         "user",
         prompt
       );
-
       setMessages((prev) =>
         prev.map((m) =>
           m._id === tempId
@@ -187,38 +186,111 @@ export function CreateInvoicePage() {
         )
       );
 
-      const parsed = await parseInvoiceWithAI(prompt);
+      // Parse — single or multiple
+      const result = await parseInvoiceWithAI(prompt);
 
-      const assistantContent = `I've parsed your request! Here's the invoice for **${parsed.clientName}**. Review it in the panel on the right.`;
+      if (result.isMultiple && result.invoices && result.invoices.length > 1) {
+        // ── Multi-invoice flow ──
+        const assistantContent = `I've parsed **${result.invoices.length} invoices** from your request! Review each one in the panel on the right and confirm them individually.`;
 
-      const savedAssistantMsg = await addChatMessage(
-        user.id,
-        sessionId,
-        "assistant",
-        assistantContent,
-        { data: parsed, isConfirmed: false }
-      );
+        const savedAssistantMsg = await addChatMessage(
+          user.id,
+          sessionId,
+          "assistant",
+          assistantContent
+        );
 
-      const newUIMsg: UIMessage = {
-        _id: savedAssistantMsg._id,
-        role: "assistant",
-        content: assistantContent,
-        timestamp: getTime(),
-        invoiceMessageId: savedAssistantMsg._id,
-        isConfirmed: false,
-        dbMessageId: savedAssistantMsg._id,
-      };
-      setMessages((prev) => [...prev, newUIMsg]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            _id: savedAssistantMsg._id,
+            role: "assistant",
+            content: assistantContent,
+            timestamp: getTime(),
+            dbMessageId: savedAssistantMsg._id,
+          },
+        ]);
 
-      // Add to session invoices
-      const newSessionInvoice: SessionInvoice = {
-        messageId: savedAssistantMsg._id,
-        invoice: parsed,
-        isConfirmed: false,
-        dbMessageId: savedAssistantMsg._id,
-      };
-      setSessionInvoices((prev) => [...prev, newSessionInvoice]);
-      setSelectedPanelMessageId(savedAssistantMsg._id);
+        // Save each as separate message
+        const newInvoices: SessionInvoice[] = [];
+
+        for (const inv of result.invoices) {
+          const label = inv.invoiceMonth
+            ? `${inv.invoiceMonth} — ${inv.clientName}`
+            : inv.clientName;
+
+          const invMsg = await addChatMessage(
+            user.id,
+            sessionId,
+            "assistant",
+            `Invoice for **${label}** — ₹${inv.total.toLocaleString("en-IN")}`,
+            { data: inv, isConfirmed: false }
+          );
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              _id: invMsg._id,
+              role: "assistant",
+              content: `Invoice for **${label}** — ₹${inv.total.toLocaleString(
+                "en-IN"
+              )}`,
+              timestamp: getTime(),
+              invoiceMessageId: invMsg._id,
+              isConfirmed: false,
+              dbMessageId: invMsg._id,
+            },
+          ]);
+
+          newInvoices.push({
+            messageId: invMsg._id,
+            invoice: inv,
+            isConfirmed: false,
+            dbMessageId: invMsg._id,
+          });
+        }
+
+        setSessionInvoices((prev) => [...prev, ...newInvoices]);
+        setSelectedPanelMessageId(newInvoices[0].messageId);
+      } else if (result.invoice) {
+        // ── Single invoice flow ──
+        const parsed = result.invoice;
+        const assistantContent = `I've parsed your request! Here's the invoice for **${
+          parsed.clientName
+        }**${
+          parsed.invoiceMonth ? ` (${parsed.invoiceMonth})` : ""
+        }. Review it in the panel on the right.`;
+
+        const savedAssistantMsg = await addChatMessage(
+          user.id,
+          sessionId,
+          "assistant",
+          assistantContent,
+          { data: parsed, isConfirmed: false }
+        );
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            _id: savedAssistantMsg._id,
+            role: "assistant",
+            content: assistantContent,
+            timestamp: getTime(),
+            invoiceMessageId: savedAssistantMsg._id,
+            isConfirmed: false,
+            dbMessageId: savedAssistantMsg._id,
+          },
+        ]);
+
+        const newSessionInvoice: SessionInvoice = {
+          messageId: savedAssistantMsg._id,
+          invoice: parsed,
+          isConfirmed: false,
+          dbMessageId: savedAssistantMsg._id,
+        };
+        setSessionInvoices((prev) => [...prev, newSessionInvoice]);
+        setSelectedPanelMessageId(savedAssistantMsg._id);
+      }
 
       loadSessions();
     } catch (err) {
@@ -345,11 +417,8 @@ export function CreateInvoicePage() {
           }));
         setSessionInvoices(invoices);
 
-        if (invoices.length > 0) {
-          // Last invoice in array = newest (DB returns oldest first)
-          const newest = invoices[invoices.length - 1];
-          setSelectedPanelMessageId(newest.messageId);
-        }
+        // All cards closed by default on session load
+        setSelectedPanelMessageId(null);
       }
     } catch (err) {
       console.error("Failed to load messages:", err);
@@ -467,7 +536,7 @@ export function CreateInvoicePage() {
         }}
         onSelect={(messageId) => {
           setSelectedPanelMessageId(messageId);
-          scrollToMessage(messageId);
+          if (messageId) scrollToMessage(messageId);
         }}
         userName={user?.fullName || user?.firstName || "InvoiceOS User"}
       />

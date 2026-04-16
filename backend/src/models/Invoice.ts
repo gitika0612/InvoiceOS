@@ -20,6 +20,8 @@ export interface IInvoiceDocument extends Document {
   status: "draft" | "sent" | "paid" | "overdue";
   createdVia: "chat" | "template" | "memory";
   originalPrompt?: string;
+  invoiceDate: Date;
+  invoiceMonth: string;
   dueDate: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -27,25 +29,10 @@ export interface IInvoiceDocument extends Document {
 
 const invoiceSchema = new Schema<IInvoiceDocument>(
   {
-    userId: {
-      type: String,
-      required: true,
-      index: true,
-    },
-    invoiceNumber: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    clientId: {
-      type: String,
-      default: "",
-    },
-    clientName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+    userId: { type: String, required: true, index: true },
+    invoiceNumber: { type: String, required: true, unique: true },
+    clientId: { type: String, default: "" },
+    clientName: { type: String, required: true, trim: true },
     lineItems: {
       type: [
         {
@@ -58,26 +45,11 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
       ],
       default: [],
     },
-    paymentTermsDays: {
-      type: Number,
-      default: 15,
-    },
-    gstPercent: {
-      type: Number,
-      default: 18,
-    },
-    subtotal: {
-      type: Number,
-      required: true,
-    },
-    gstAmount: {
-      type: Number,
-      required: true,
-    },
-    total: {
-      type: Number,
-      required: true,
-    },
+    paymentTermsDays: { type: Number, default: 15 },
+    gstPercent: { type: Number, default: 18 },
+    subtotal: { type: Number, required: true },
+    gstAmount: { type: Number, required: true },
+    total: { type: Number, required: true },
     status: {
       type: String,
       enum: ["draft", "sent", "paid", "overdue"],
@@ -88,18 +60,22 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
       enum: ["chat", "template", "memory"],
       default: "chat",
     },
-    originalPrompt: {
+    originalPrompt: { type: String, default: "" },
+    invoiceDate: {
+      type: Date,
+      default: () => new Date(),
+    },
+    invoiceMonth: {
       type: String,
       default: "",
+      // e.g. "January 2026"
     },
     dueDate: {
       type: Date,
       default: () => new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 export const Invoice = mongoose.model<IInvoiceDocument>(

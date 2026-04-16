@@ -1,12 +1,27 @@
 import { useState, useMemo } from "react";
 import {
   FileText,
-  CheckCircle2,
   ChevronRight,
   ChevronLeft,
+  Search,
+  X,
+  ChevronDown,
+  ChevronUp,
+  ArrowUpDown,
 } from "lucide-react";
 import { ParsedInvoice } from "./InvoicePreviewCard";
 import { InvoicePreviewCard } from "./InvoicePreviewCard";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export interface SessionInvoice {
   messageId: string;
@@ -23,11 +38,26 @@ interface InvoicePanelProps {
   onConfirm: (messageId: string) => void;
   onDiscard: (messageId: string) => void;
   onEdit: (messageId: string, updated: ParsedInvoice) => void;
-  onSelect: (messageId: string) => void;
+  onSelect: (messageId: string | null) => void;
   userName?: string;
 }
 
-type PanelTab = "drafts" | "saved";
+type SortOption = "newest" | "oldest" | "highest" | "lowest" | "az";
+type StatusFilter = "all" | "draft" | "saved";
+
+function formatINR(amount: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function getGroupKey(si: SessionInvoice): string {
+  if (si.invoice.invoiceMonth) return si.invoice.invoiceMonth;
+  const d = new Date();
+  return d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
 
 export function InvoicePanel({
   sessionInvoices,
@@ -39,224 +69,378 @@ export function InvoicePanel({
   userName,
 }: InvoicePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [manualTab, setManualTab] = useState<PanelTab | null>(null);
-  const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
+  const [manualTab, setManualTab] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [filterClient, setFilterClient] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({});
 
-  // newest first
   const drafts = [...sessionInvoices.filter((s) => !s.isConfirmed)].reverse();
   const saved = [...sessionInvoices.filter((s) => s.isConfirmed)].reverse();
 
-  // Selected invoice — find in ALL invoices
-  const selectedInvoice = useMemo(() => {
-    return (
-      sessionInvoices.find((s) => s.messageId === selectedMessageId) || null
-    );
-  }, [sessionInvoices, selectedMessageId]);
+  const baseList =
+    manualTab === "draft"
+      ? drafts
+      : manualTab === "saved"
+      ? saved
+      : [...sessionInvoices].reverse();
 
-  // Reset manual tab when selection changes → tab auto-follows selected invoice
-  if (selectedMessageId !== prevSelectedId) {
-    setPrevSelectedId(selectedMessageId);
-    setManualTab(null);
-  }
+  const filtered = useMemo(
+    () =>
+      baseList.filter((si) => {
+        const q = search.toLowerCase();
+        const matchSearch =
+          si.invoice.clientName.toLowerCase().includes(q) ||
+          (si.invoiceNumber || "").toLowerCase().includes(q);
+        const matchClient = filterClient
+          ? si.invoice.clientName === filterClient
+          : true;
+        return matchSearch && matchClient;
+      }),
+    [baseList, search, filterClient]
+  );
 
-  // Derive active tab
-  // manualTab wins if user clicked a tab
-  // otherwise follow the selected invoice
-  const activeTab: PanelTab =
-    manualTab ?? (selectedInvoice?.isConfirmed ? "saved" : "drafts");
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort((a, b) => {
+        switch (sortBy) {
+          case "highest":
+            return b.invoice.total - a.invoice.total;
+          case "lowest":
+            return a.invoice.total - b.invoice.total;
+          case "az":
+            return a.invoice.clientName.localeCompare(b.invoice.clientName);
+          default:
+            return 0;
+        }
+      }),
+    [filtered, sortBy]
+  );
 
-  const visibleInvoices = activeTab === "drafts" ? drafts : saved;
+  const grouped = useMemo(() => {
+    const groups: Record<string, SessionInvoice[]> = {};
+    sorted.forEach((si) => {
+      const key = getGroupKey(si);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(si);
+    });
+    return groups;
+  }, [sorted]);
+
+  const hasFilters = search || filterClient;
+
+  const clearFilters = () => {
+    setSearch("");
+    setFilterClient("");
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   if (sessionInvoices.length === 0) return null;
 
   return (
     <div
       className={`
-      relative flex flex-col bg-[#F9FAFB] border-l border-gray-100
+      relative flex flex-col border-l border-gray-100 bg-[#FCFCFC]
       transition-all duration-300 flex-shrink-0 h-full
-      ${collapsed ? "w-10" : "w-[420px]"}
+      ${collapsed ? "w-10" : "w-[450px]"}
     `}
     >
-      {/* ── Collapse toggle ── */}
-      <div className="absolute top-0 right-0 z-10">
-        <button
+      {/* Collapse */}
+      <div className="absolute top-3 right-2 z-20">
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center justify-center w-8 h-8 mt-3 mr-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          className="w-7 h-7 text-gray-400 hover:text-gray-600"
         >
           {collapsed ? (
             <ChevronLeft className="w-4 h-4" />
           ) : (
             <ChevronRight className="w-4 h-4" />
           )}
-        </button>
+        </Button>
       </div>
 
       {!collapsed && (
         <>
-          {/* ── Header ── */}
-          <div className="px-4 pt-3 pb-3 border-b border-gray-100 bg-white">
-            <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wide pr-8">
-              Session Invoices
-            </h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {sessionInvoices.length} invoice
-              {sessionInvoices.length !== 1 ? "s" : ""} this chat
-            </p>
-          </div>
+          {/* ── Sticky header ── */}
+          <div className="flex-shrink-0 bg-white border-b border-gray-100">
+            {/* Title */}
+            <div className="px-4 pt-3 pb-2 pr-10">
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">
+                Session Invoices
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {sessionInvoices.length} invoice
+                {sessionInvoices.length !== 1 ? "s" : ""} · {drafts.length}{" "}
+                draft{drafts.length !== 1 ? "s" : ""} · {saved.length} saved
+              </p>
+            </div>
 
-          {/* ── Tabs ── */}
-          <div className="flex border-b border-gray-100 bg-white">
-            <button
-              onClick={() => {
-                setManualTab("drafts");
-                // Auto select first draft
-                if (drafts.length > 0) onSelect(drafts[0].messageId);
-              }}
-              className={`
-                flex-1 flex items-center justify-center gap-1.5 py-2.5
-                text-xs font-semibold transition-colors border-b-2
-                ${
-                  activeTab === "drafts"
-                    ? "text-indigo-600 border-indigo-600"
-                    : "text-gray-400 border-transparent hover:text-gray-600"
-                }
-              `}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Drafts
-              {drafts.length > 0 && (
-                <span
+            {/* Status chips */}
+            <div className="flex gap-1.5 px-4 pb-2 overflow-x-auto">
+              {(
+                [
+                  { key: "all", label: "All", count: sessionInvoices.length },
+                  { key: "draft", label: "Draft", count: drafts.length },
+                  { key: "saved", label: "Saved", count: saved.length },
+                ] as const
+              ).map(({ key, label, count }) => (
+                <Badge
+                  key={key}
+                  variant="outline"
+                  onClick={() => setManualTab(key)}
                   className={`
-                  text-xs px-1.5 py-0.5 rounded-full font-bold
-                  ${
-                    activeTab === "drafts"
-                      ? "bg-indigo-100 text-indigo-600"
-                      : "bg-gray-100 text-gray-500"
-                  }
-                `}
-                >
-                  {drafts.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                setManualTab("saved");
-                // Auto select first saved
-                if (saved.length > 0) onSelect(saved[0].messageId);
-              }}
-              className={`
-                flex-1 flex items-center justify-center gap-1.5 py-2.5
-                text-xs font-semibold transition-colors border-b-2
-                ${
-                  activeTab === "saved"
-                    ? "text-indigo-600 border-indigo-600"
-                    : "text-gray-400 border-transparent hover:text-gray-600"
-                }
-              `}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Saved
-              {saved.length > 0 && (
-                <span
-                  className={`
-                  text-xs px-1.5 py-0.5 rounded-full font-bold
-                  ${
-                    activeTab === "saved"
-                      ? "bg-indigo-100 text-indigo-600"
-                      : "bg-gray-100 text-gray-500"
-                  }
-                `}
-                >
-                  {saved.length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* ── Pills — when multiple ── */}
-          {visibleInvoices.length > 1 && (
-            <div className="flex gap-2 px-4 py-2.5 overflow-x-auto bg-white border-b border-gray-100">
-              {visibleInvoices.map((si) => (
-                <button
-                  key={si.messageId}
-                  onClick={() => onSelect(si.messageId)}
-                  className={`
-                    flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold
-                    transition-all whitespace-nowrap
+                    cursor-pointer flex-shrink-0 gap-1 rounded-full px-2.5 py-1
+                    text-xs font-semibold transition-all select-none
                     ${
-                      selectedMessageId === si.messageId
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      manualTab === key
+                        ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                        : "bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200"
                     }
                   `}
                 >
-                  {si.invoice.clientName}
-                  {si.invoiceNumber && ` · ${si.invoiceNumber}`}
-                </button>
+                  {label}
+                  <span
+                    className={`font-bold ${
+                      manualTab === key ? "text-indigo-600" : "text-gray-400"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </Badge>
               ))}
             </div>
-          )}
 
-          {/* ── Invoice Preview Card ── */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {visibleInvoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
-                  {activeTab === "drafts" ? (
+            {/* Search + Sort */}
+            <div className="px-3 pb-2 flex gap-1.5">
+              {/* Search */}
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+                <Input
+                  placeholder="Search client, invoice number..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-7 pr-7 h-8 text-xs bg-gray-50 border-gray-200 rounded-lg focus-visible:ring-indigo-400"
+                />
+                {search && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSearch("")}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+
+              {/* Sort */}
+              <Select
+                value={sortBy}
+                onValueChange={(val) => setSortBy(val as SortOption)}
+              >
+                <SelectTrigger className="w-28 h-8 text-xs bg-gray-50 border-gray-200 rounded-lg focus:ring-indigo-400 gap-1">
+                  <ArrowUpDown className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest</SelectItem>
+                  <SelectItem value="oldest">Oldest</SelectItem>
+                  <SelectItem value="highest">Highest</SelectItem>
+                  <SelectItem value="lowest">Lowest</SelectItem>
+                  <SelectItem value="az">A–Z</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* ── Invoice list ── */}
+          <ScrollArea className="flex-1">
+            <div className="py-2 bg-white">
+              {sorted.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+                  <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
                     <FileText className="w-6 h-6 text-gray-300" />
-                  ) : (
-                    <CheckCircle2 className="w-6 h-6 text-gray-300" />
+                  </div>
+                  <p className="text-sm text-gray-400 font-medium">
+                    No invoices found
+                  </p>
+                  <p className="text-xs text-gray-300 mt-1">
+                    Use search or filters to find invoices
+                  </p>
+                  {hasFilters && (
+                    <Button
+                      variant="link"
+                      onClick={clearFilters}
+                      className="text-xs text-indigo-500 mt-1 h-auto p-0"
+                    >
+                      Clear filters
+                    </Button>
                   )}
                 </div>
-                <p className="text-sm text-gray-400 font-medium">
-                  {activeTab === "drafts"
-                    ? "No pending invoices"
-                    : "No saved invoices"}
-                </p>
-                <p className="text-xs text-gray-300 mt-1">
-                  {activeTab === "drafts"
-                    ? "All invoices confirmed!"
-                    : "Confirm a draft to save it"}
-                </p>
-              </div>
-            ) : selectedInvoice &&
-              activeTab ===
-                (selectedInvoice.isConfirmed ? "saved" : "drafts") ? (
-              <InvoicePreviewCard
-                invoice={selectedInvoice.invoice}
-                isConfirmed={selectedInvoice.isConfirmed}
-                invoiceNumber={selectedInvoice.invoiceNumber}
-                userName={userName}
-                onConfirm={() => onConfirm(selectedInvoice.messageId)}
-                onEdit={(updated) => onEdit(selectedInvoice.messageId, updated)}
-                onDiscard={() => {
-                  onDiscard(selectedInvoice.messageId);
-                  const remaining = visibleInvoices.filter(
-                    (s) => s.messageId !== selectedInvoice.messageId
+              ) : (
+                Object.entries(grouped).map(([group, items]) => {
+                  const isGroupCollapsed = collapsedGroups[group];
+                  return (
+                    <div key={group} className="mb-1">
+                      {/* Group header */}
+                      {Object.keys(grouped).length > 1 && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => toggleGroup(group)}
+                          className="w-full justify-between px-4 py-2 h-auto rounded-none text-xs hover:bg-gray-100"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">
+                              {group}
+                            </span>
+                            <Badge
+                              variant="secondary"
+                              className="text-xs px-1.5 py-0 h-4 rounded-full font-normal"
+                            >
+                              {items.length}
+                            </Badge>
+                          </div>
+                          {isGroupCollapsed ? (
+                            <ChevronDown className="w-3 h-3 text-gray-400" />
+                          ) : (
+                            <ChevronUp className="w-3 h-3 text-gray-400" />
+                          )}
+                        </Button>
+                      )}
+
+                      {/* Invoice cards */}
+                      {!isGroupCollapsed &&
+                        items.map((si) => {
+                          const isSelected = selectedMessageId === si.messageId;
+                          return (
+                            <div key={si.messageId} className="px-3 mb-1.5">
+                              <div className="rounded-xl border border-gray-200 bg-white hover:shadow-[0_6px_20px_rgba(0,0,0,0.05)] overflow-hidden transition-all duration-200">
+                                {/* Card header — click to toggle */}
+                                <button
+                                  onClick={() =>
+                                    onSelect(isSelected ? null : si.messageId)
+                                  }
+                                  className={`
+                                  w-full text-left px-4 py-3 flex items-start gap-3 transition-colors
+                                  ${
+                                    isSelected
+                                      ? "bg-[#FAFAFA]"
+                                      : "bg-white hover:bg-gray-50"
+                                  }
+                                `}
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        {si.invoiceNumber && (
+                                          <p
+                                            className={`text-xs font-bold tracking-wide ${
+                                              isSelected
+                                                ? "text-gray-900"
+                                                : "text-gray-500"
+                                            }`}
+                                          >
+                                            {si.invoiceNumber}
+                                          </p>
+                                        )}
+                                        <p className="text-sm font-semibold mt-0.5 truncate text-gray-900">
+                                          {si.invoice.clientName}
+                                          {si.invoiceNumber ? (
+                                            <Badge className="ml-2 text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full">
+                                              Saved
+                                            </Badge>
+                                          ) : (
+                                            <Badge
+                                              variant="secondary"
+                                              className="ml-2 text-xs font-medium px-2 py-0 rounded-full"
+                                            >
+                                              Draft
+                                            </Badge>
+                                          )}
+                                        </p>
+                                      </div>
+                                      <p className="text-sm font-semibold text-gray-900 flex-shrink-0">
+                                        {formatINR(si.invoice.total)}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mt-1.5">
+                                      <div
+                                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                          si.isConfirmed
+                                            ? "bg-emerald-400"
+                                            : "bg-amber-400"
+                                        }`}
+                                      />
+                                      <p className="text-xs text-gray-400">
+                                        {si.isConfirmed ? "Saved" : "Pending"} ·{" "}
+                                        {si.invoice.lineItems?.length || 0} item
+                                        {(si.invoice.lineItems?.length || 0) !==
+                                        1
+                                          ? "s"
+                                          : ""}{" "}
+                                        · GST {si.invoice.gstPercent}%
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex-shrink-0 mt-1">
+                                    {isSelected ? (
+                                      <ChevronUp className="w-3.5 h-3.5 text-indigo-400" />
+                                    ) : (
+                                      <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
+                                    )}
+                                  </div>
+                                </button>
+
+                                {/* Expanded preview */}
+                                {isSelected && (
+                                  <div className="border-t border-gray-100">
+                                    <div className="p-3">
+                                      <InvoicePreviewCard
+                                        invoice={si.invoice}
+                                        isConfirmed={si.isConfirmed}
+                                        invoiceNumber={si.invoiceNumber}
+                                        userName={userName}
+                                        onConfirm={() =>
+                                          onConfirm(si.messageId)
+                                        }
+                                        onEdit={(updated) =>
+                                          onEdit(si.messageId, updated)
+                                        }
+                                        onDiscard={() => {
+                                          onDiscard(si.messageId);
+                                          const remaining = sorted.filter(
+                                            (s) => s.messageId !== si.messageId
+                                          );
+                                          onSelect(
+                                            remaining.length > 0
+                                              ? remaining[0].messageId
+                                              : null
+                                          );
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
                   );
-                  if (remaining.length > 0) onSelect(remaining[0].messageId);
-                }}
-              />
-            ) : visibleInvoices.length > 0 ? (
-              // Show first in current tab if selected doesn't belong here
-              <InvoicePreviewCard
-                invoice={visibleInvoices[0].invoice}
-                isConfirmed={visibleInvoices[0].isConfirmed}
-                invoiceNumber={visibleInvoices[0].invoiceNumber}
-                userName={userName}
-                onConfirm={() => onConfirm(visibleInvoices[0].messageId)}
-                onEdit={(updated) =>
-                  onEdit(visibleInvoices[0].messageId, updated)
-                }
-                onDiscard={() => {
-                  onDiscard(visibleInvoices[0].messageId);
-                  const remaining = visibleInvoices.slice(1);
-                  if (remaining.length > 0) onSelect(remaining[0].messageId);
-                }}
-              />
-            ) : null}
-          </div>
+                })
+              )}
+            </div>
+          </ScrollArea>
         </>
       )}
     </div>

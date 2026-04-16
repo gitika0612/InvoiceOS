@@ -1,10 +1,14 @@
 /// <reference types="node" />
 import { Request, Response } from "express";
-import { parseInvoiceWithAI } from "../lib/invoiceParser";
+import {
+  parseInvoiceWithAI,
+  detectMultiInvoice,
+  parseMultipleInvoices,
+} from "../lib/invoiceParser";
 import { Invoice } from "../models/Invoice";
 import { generateInvoiceNumber } from "../lib/invoiceHelper";
 
-// Parse invoice using LangChain
+// ── Parse invoice (single or multi) ──
 export async function parseInvoice(req: Request, res: Response): Promise<void> {
   const { prompt } = req.body;
 
@@ -16,10 +20,48 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    console.log(`🤖 Parsing invoice prompt: "${prompt}"`);
-    const parsed = await parseInvoiceWithAI(prompt);
-    console.log(`✅ Invoice parsed for: ${parsed.clientName}`);
-    res.status(200).json({ success: true, invoice: parsed });
+    console.log(`🤖 Parsing: "${prompt}"`);
+
+    // Try multi-invoice detection first
+    let isMultiple = false;
+    let subPrompts: string[] = [];
+
+    try {
+      const detection = await detectMultiInvoice(prompt);
+      console.log(
+        `🔍 Multi: ${detection.isMultiple}, count: ${detection.count}`
+      );
+      isMultiple =
+        detection.isMultiple &&
+        detection.count > 1 &&
+        detection.subPrompts.length > 1;
+      subPrompts = detection.subPrompts;
+    } catch (detectionErr) {
+      // If detection fails, fall back to single invoice
+      console.warn(
+        "⚠️ Multi-detection failed, falling back to single:",
+        detectionErr
+      );
+      isMultiple = false;
+    }
+
+    if (isMultiple && subPrompts.length > 1) {
+      const invoices = await parseMultipleInvoices(subPrompts);
+      console.log(`✅ Parsed ${invoices.length} invoices`);
+      res.status(200).json({
+        success: true,
+        isMultiple: true,
+        invoices,
+      });
+    } else {
+      const invoice = await parseInvoiceWithAI(prompt);
+      console.log(`✅ Parsed for: ${invoice.clientName}`);
+      res.status(200).json({
+        success: true,
+        isMultiple: false,
+        invoice,
+      });
+    }
   } catch (err) {
     console.error("❌ Invoice parsing failed:", err);
     res
@@ -28,7 +70,7 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
   }
 }
 
-// Save confirmed invoice to MongoDB
+// ── Save invoice ──
 export async function saveInvoice(req: Request, res: Response): Promise<void> {
   const {
     userId,
@@ -40,6 +82,8 @@ export async function saveInvoice(req: Request, res: Response): Promise<void> {
     gstAmount,
     total,
     originalPrompt,
+    invoiceDate,
+    invoiceMonth,
   } = req.body;
 
   if (!userId || !clientName || !total) {
@@ -58,7 +102,7 @@ export async function saveInvoice(req: Request, res: Response): Promise<void> {
     });
 
     if (duplicate) {
-      console.log(`⚠️ Duplicate invoice: ${duplicate.invoiceNumber}`);
+      console.log(`⚠️ Duplicate: ${duplicate.invoiceNumber}`);
       res
         .status(200)
         .json({ success: true, invoice: duplicate, isDuplicate: true });
@@ -67,6 +111,24 @@ export async function saveInvoice(req: Request, res: Response): Promise<void> {
 
     const invoiceNumber = await generateInvoiceNumber();
     const terms = paymentTermsDays || 15;
+
+    // Resolve invoice date
+    const resolvedInvoiceDate = invoiceDate
+      ? new Date(invoiceDate)
+      : new Date();
+
+    // Due date from invoice date
+    const resolvedDueDate = new Date(
+      resolvedInvoiceDate.getTime() + terms * 24 * 60 * 60 * 1000
+    );
+
+    // Auto-generate invoiceMonth if not provided
+    const resolvedInvoiceMonth =
+      invoiceMonth ||
+      resolvedInvoiceDate.toLocaleDateString("en-IN", {
+        month: "long",
+        year: "numeric",
+      });
 
     const invoice = await Invoice.create({
       userId,
@@ -81,7 +143,9 @@ export async function saveInvoice(req: Request, res: Response): Promise<void> {
       status: "draft",
       createdVia: "chat",
       originalPrompt: originalPrompt || "",
-      dueDate: new Date(Date.now() + terms * 24 * 60 * 60 * 1000),
+      invoiceDate: resolvedInvoiceDate,
+      invoiceMonth: resolvedInvoiceMonth,
+      dueDate: resolvedDueDate,
     });
 
     console.log(`✅ Invoice saved: ${invoiceNumber} for ${clientName}`);
@@ -92,7 +156,7 @@ export async function saveInvoice(req: Request, res: Response): Promise<void> {
   }
 }
 
-// Get all invoices for a user
+// ── Get all invoices ──
 export async function getUserInvoices(
   req: Request,
   res: Response
@@ -105,7 +169,7 @@ export async function getUserInvoices(
   }
 
   try {
-    const invoices = await Invoice.find({ userId }).sort({ createdAt: -1 }); // Newest first
+    const invoices = await Invoice.find({ userId }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, invoices });
   } catch (err) {
     console.error("❌ Get invoices error:", err);
@@ -113,6 +177,7 @@ export async function getUserInvoices(
   }
 }
 
+// ── Update invoice ──
 export async function updateInvoice(
   req: Request,
   res: Response
@@ -159,6 +224,8 @@ export async function updateInvoice(
         total: req.body.total,
         dueDate: req.body.dueDate,
         status: req.body.status,
+        invoiceDate: req.body.invoiceDate,
+        invoiceMonth: req.body.invoiceMonth,
       },
       { new: true }
     );
@@ -171,6 +238,7 @@ export async function updateInvoice(
   }
 }
 
+// ── Dashboard stats ──
 export async function getDashboardStats(
   req: Request,
   res: Response
@@ -186,7 +254,6 @@ export async function getDashboardStats(
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Run all queries in parallel for speed
     const [
       totalInvoices,
       pendingAmount,
@@ -194,16 +261,11 @@ export async function getDashboardStats(
       overdueCount,
       recentInvoices,
     ] = await Promise.all([
-      // Total invoices count
       Invoice.countDocuments({ userId: clerkId }),
-
-      // Pending payment — sum of draft + sent invoices
       Invoice.aggregate([
         { $match: { userId: clerkId, status: { $in: ["draft", "sent"] } } },
         { $group: { _id: null, total: { $sum: "$total" } } },
       ]),
-
-      // Paid this month — sum
       Invoice.aggregate([
         {
           $match: {
@@ -214,14 +276,7 @@ export async function getDashboardStats(
         },
         { $group: { _id: null, total: { $sum: "$total" } } },
       ]),
-
-      // Overdue count
-      Invoice.countDocuments({
-        userId: clerkId,
-        status: "overdue",
-      }),
-
-      // Recent 5 invoices
+      Invoice.countDocuments({ userId: clerkId, status: "overdue" }),
       Invoice.find({ userId: clerkId }).sort({ createdAt: -1 }).limit(5).lean(),
     ]);
 
@@ -241,6 +296,7 @@ export async function getDashboardStats(
   }
 }
 
+// ── Delete invoice ──
 export async function removeInvoice(
   req: Request,
   res: Response
@@ -249,12 +305,10 @@ export async function removeInvoice(
 
   try {
     const invoice = await Invoice.findByIdAndDelete(id);
-
     if (!invoice) {
       res.status(404).json({ error: "Invoice not found" });
       return;
     }
-
     console.log(`✅ Invoice deleted: ${invoice.invoiceNumber}`);
     res.status(200).json({ success: true });
   } catch (err) {
@@ -263,23 +317,20 @@ export async function removeInvoice(
   }
 }
 
+// ── Get invoice by ID ──
 export async function getInvoiceById(
   req: Request,
   res: Response
 ): Promise<void> {
   const { id } = req.params;
-  console.log("🔍 Fetching invoice:", id); // ← add this
 
   try {
     const invoice = await Invoice.findById(id).lean();
-    console.log("📄 Found:", invoice); // ← add this
-
     if (!invoice) {
       res.status(404).json({ error: "Invoice not found" });
       return;
     }
-
-    res.status(200).json({ success: true, invoice });
+    res.status(200).json({ success: true, invoice, client: null });
   } catch (err) {
     console.error("❌ Get invoice error:", err);
     res.status(500).json({ error: "Failed to fetch invoice" });

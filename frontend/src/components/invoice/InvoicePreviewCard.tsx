@@ -1,6 +1,10 @@
 import { useState } from "react";
-import { Check, Edit2, Plus, Trash2 } from "lucide-react";
+import { Check, Edit2, Plus, Trash2, Calendar } from "lucide-react";
 import { DownloadPDFButton } from "./pdf/DownloadPDFButton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 
 export interface LineItem {
   description: string;
@@ -18,7 +22,8 @@ export interface ParsedInvoice {
   subtotal: number;
   gstAmount: number;
   total: number;
-  // Legacy fields for backward compatibility
+  invoiceDate?: string;
+  invoiceMonth?: string;
   workDescription?: string;
   quantity?: number;
   quantityUnit?: string;
@@ -35,6 +40,35 @@ interface InvoicePreviewCardProps {
   userName?: string;
 }
 
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function getInvoiceDates(invoice: ParsedInvoice) {
+  const issueDate = invoice.invoiceDate
+    ? new Date(invoice.invoiceDate)
+    : new Date();
+  const dueDate = new Date(
+    issueDate.getTime() + (invoice.paymentTermsDays || 15) * 24 * 60 * 60 * 1000
+  );
+  return {
+    issueDate: issueDate.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    dueDate: dueDate.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+  };
+}
+
 export function InvoicePreviewCard({
   invoice,
   onConfirm,
@@ -46,14 +80,6 @@ export function InvoicePreviewCard({
   const [isEditing, setIsEditing] = useState(false);
   const [editedInvoice, setEditedInvoice] = useState(invoice);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount);
-
-  // Recalculate totals from line items
   const recalculateTotals = (updated: ParsedInvoice): ParsedInvoice => {
     const subtotal = updated.lineItems.reduce(
       (sum, item) => sum + item.amount,
@@ -64,7 +90,6 @@ export function InvoicePreviewCard({
     return { ...updated, subtotal, gstAmount, total };
   };
 
-  // Update a single line item field
   const handleLineItemChange = (
     index: number,
     field: keyof LineItem,
@@ -79,7 +104,6 @@ export function InvoicePreviewCard({
             ? Number(value)
             : value,
       };
-      // Recalculate item amount
       updated.amount = Math.round(
         Number(updated.quantity) * Number(updated.rate)
       );
@@ -90,7 +114,6 @@ export function InvoicePreviewCard({
     );
   };
 
-  // Add new empty line item
   const handleAddLineItem = () => {
     const newItem: LineItem = {
       description: "",
@@ -105,7 +128,6 @@ export function InvoicePreviewCard({
     });
   };
 
-  // Remove a line item
   const handleRemoveLineItem = (index: number) => {
     const updatedItems = editedInvoice.lineItems.filter((_, i) => i !== index);
     setEditedInvoice(
@@ -113,7 +135,6 @@ export function InvoicePreviewCard({
     );
   };
 
-  // Update top level fields
   const handleFieldChange = (
     field: keyof ParsedInvoice,
     value: string | number
@@ -123,60 +144,109 @@ export function InvoicePreviewCard({
   };
 
   const current = isEditing ? editedInvoice : invoice;
+  const { issueDate, dueDate } = getInvoiceDates(current);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-card overflow-hidden w-full max-w-md">
-      {/* Header */}
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden w-full">
+      {/* ── Header ── */}
       <div
-        className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"
+        className="px-5 py-5 border-b border-gray-200"
         style={{
-          background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
+          background:
+            "linear-gradient(135deg, #FAFAFA 0%, #F5F5F5 50%, #F8F8F8 100%)",
         }}
       >
-        <div>
-          <p className="text-xs font-medium text-indigo-200 uppercase tracking-wide">
+        <div className="flex items-start justify-between mb-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
             Invoice Preview
           </p>
-          <p className="text-white font-bold text-lg mt-0.5">
-            {current.clientName}
-          </p>
-        </div>
-      </div>
-
-      {/* Fields */}
-      <div className="p-5 space-y-4">
-        {/* Client Name */}
-        <div>
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-            Client Name
-          </p>
-          {isEditing ? (
-            <input
-              value={current.clientName}
-              onChange={(e) => handleFieldChange("clientName", e.target.value)}
-              className={inputClass}
-            />
-          ) : (
-            <p className="text-sm font-medium text-gray-900">
-              {current.clientName}
-            </p>
+          {invoiceNumber && (
+            <Badge
+              variant="outline"
+              className="text-xs font-bold text-gray-600 border-gray-200"
+            >
+              {invoiceNumber}
+            </Badge>
           )}
         </div>
 
-        {/* Line Items */}
+        {/* 2×2 metadata grid */}
+        <div className="grid grid-cols-2 gap-y-3 gap-x-4">
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3 h-3 text-gray-400 flex-shrink-0" />
+            <div>
+              <p className="text-gray-400 text-xs">Issue Date</p>
+              <p className="text-gray-700 text-xs font-semibold">{issueDate}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3 h-3 text-gray-400 flex-shrink-0" />
+            <div>
+              <p className="text-gray-400 text-xs">Due Date</p>
+              <p className="text-gray-700 text-xs font-semibold">{dueDate}</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-gray-400 text-xs">Payment Terms</p>
+            <p className="text-gray-700 text-xs font-semibold">
+              Net {current.paymentTermsDays} days
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-400 text-xs">Items · GST</p>
+            <p className="text-gray-700 text-xs font-semibold">
+              {current.lineItems?.length || 0} item
+              {(current.lineItems?.length || 0) !== 1 ? "s" : ""} ·{" "}
+              {current.gstPercent}%
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Fields ── */}
+      <div className="p-5 space-y-5">
+        {/* Client Name — edit mode only */}
+        {isEditing && (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Client Name
+            </Label>
+            <Input
+              value={current.clientName}
+              onChange={(e) => handleFieldChange("clientName", e.target.value)}
+              className="rounded-xl text-sm focus-visible:ring-indigo-400"
+            />
+          </div>
+        )}
+
+        {/* Services table */}
         <div>
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
-            Line Items
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            Services
           </p>
-          <div className="space-y-2">
+
+          {/* Table header */}
+          <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 mb-1">
+            <div className="col-span-5">
+              <p className="text-xs font-semibold text-gray-400">Description</p>
+            </div>
+            <div className="col-span-4 text-center">
+              <p className="text-xs font-semibold text-gray-400">Qty × Rate</p>
+            </div>
+            <div className="col-span-3 text-right">
+              <p className="text-xs font-semibold text-gray-400">Amount</p>
+            </div>
+          </div>
+
+          <div className="space-y-0">
             {current.lineItems?.map((item, index) =>
               isEditing ? (
                 <div
                   key={index}
-                  className="bg-gray-50 rounded-xl p-3 space-y-2"
+                  className="bg-gray-50 rounded-xl p-3 space-y-2 mb-2"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <input
+                  <div className="flex items-center gap-2">
+                    <Input
                       value={item.description}
                       onChange={(e) =>
                         handleLineItemChange(
@@ -186,41 +256,43 @@ export function InvoicePreviewCard({
                         )
                       }
                       placeholder="Description"
-                      className={inputClass + " flex-1"}
+                      className="flex-1 rounded-lg text-sm focus-visible:ring-indigo-400"
                     />
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => handleRemoveLineItem(index)}
-                      className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                      className="w-8 h-8 text-red-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    </Button>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <input
+                    <Input
                       type="number"
                       value={item.quantity}
                       onChange={(e) =>
                         handleLineItemChange(index, "quantity", e.target.value)
                       }
                       placeholder="Qty"
-                      className={inputClass}
+                      className="rounded-lg text-sm focus-visible:ring-indigo-400"
                     />
-                    <input
+                    <Input
                       value={item.unit}
                       onChange={(e) =>
                         handleLineItemChange(index, "unit", e.target.value)
                       }
                       placeholder="Unit"
-                      className={inputClass}
+                      className="rounded-lg text-sm focus-visible:ring-indigo-400"
                     />
-                    <input
+                    <Input
                       type="number"
                       value={item.rate}
                       onChange={(e) =>
                         handleLineItemChange(index, "rate", e.target.value)
                       }
                       placeholder="Rate"
-                      className={inputClass}
+                      className="rounded-lg text-sm focus-visible:ring-indigo-400"
                     />
                   </div>
                   <div className="flex justify-between text-xs text-gray-500">
@@ -228,7 +300,7 @@ export function InvoicePreviewCard({
                       {item.quantity} {item.unit} × ₹
                       {item.rate.toLocaleString("en-IN")}
                     </span>
-                    <span className="font-semibold text-gray-900">
+                    <span className="font-semibold text-gray-800">
                       {formatCurrency(item.amount)}
                     </span>
                   </div>
@@ -236,44 +308,51 @@ export function InvoicePreviewCard({
               ) : (
                 <div
                   key={index}
-                  className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2"
+                  className="grid grid-cols-12 gap-2 px-3 py-2.5 border-b border-gray-100 last:border-0"
                 >
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">
+                  <div className="col-span-5">
+                    <p className="text-sm font-medium text-gray-800">
                       {item.description}
                     </p>
+                  </div>
+                  <div className="col-span-4 text-center">
+                    <p className="text-xs text-gray-500">
+                      {item.quantity} {item.unit}
+                    </p>
                     <p className="text-xs text-gray-400">
-                      {item.quantity} {item.unit} × {formatCurrency(item.rate)}
+                      × {formatCurrency(item.rate)}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {formatCurrency(item.amount)}
-                  </p>
+                  <div className="col-span-3 text-right">
+                    <p className="text-sm font-medium text-gray-800">
+                      {formatCurrency(item.amount)}
+                    </p>
+                  </div>
                 </div>
               )
             )}
-
-            {/* Add line item button — only in edit mode */}
-            {isEditing && (
-              <button
-                onClick={handleAddLineItem}
-                className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-gray-300 rounded-xl text-xs text-gray-500 hover:border-indigo-400 hover:text-indigo-500 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add line item
-              </button>
-            )}
           </div>
+
+          {isEditing && (
+            <Button
+              variant="outline"
+              onClick={handleAddLineItem}
+              className="w-full mt-2 border-dashed rounded-xl text-xs text-gray-500 hover:border-indigo-400 hover:text-indigo-500 h-9"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              Add line item
+            </Button>
+          )}
         </div>
 
-        {/* GST + Payment Terms */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-              GST %
-            </p>
-            {isEditing ? (
-              <input
+        {/* GST + Terms — edit mode only */}
+        {isEditing && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                GST %
+              </Label>
+              <Input
                 type="number"
                 value={current.gstPercent}
                 onChange={(e) =>
@@ -282,20 +361,14 @@ export function InvoicePreviewCard({
                     parseFloat(e.target.value) || 0
                   )
                 }
-                className={inputClass}
+                className="rounded-xl text-sm focus-visible:ring-indigo-400"
               />
-            ) : (
-              <p className="text-sm font-medium text-gray-900">
-                {current.gstPercent}%
-              </p>
-            )}
-          </div>
-          <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
-              Payment Terms
-            </p>
-            {isEditing ? (
-              <input
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                Payment Terms
+              </Label>
+              <Input
                 type="number"
                 value={current.paymentTermsDays}
                 onChange={(e) =>
@@ -304,66 +377,65 @@ export function InvoicePreviewCard({
                     parseInt(e.target.value) || 15
                   )
                 }
-                className={inputClass}
+                className="rounded-xl text-sm focus-visible:ring-indigo-400"
               />
-            ) : (
-              <p className="text-sm font-medium text-gray-900">
-                {current.paymentTermsDays} days
-              </p>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Totals */}
-        <div className="border-t border-gray-100 pt-3 space-y-1.5">
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Subtotal</span>
-            <span className="text-gray-700 font-medium">
+        {/* ── Totals ── */}
+        <div className="rounded-xl overflow-hidden border border-gray-100">
+          <div className="flex justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+            <span className="text-xs text-gray-500">Subtotal</span>
+            <span className="text-xs font-medium text-gray-700">
               {formatCurrency(current.subtotal)}
             </span>
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">GST ({current.gstPercent}%)</span>
-            <span className="text-gray-700 font-medium">
+          <div className="flex justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+            <span className="text-xs text-gray-500">
+              GST ({current.gstPercent}%)
+            </span>
+            <span className="text-xs font-medium text-gray-700">
               {formatCurrency(current.gstAmount)}
             </span>
           </div>
-          <div className="flex justify-between text-base font-bold border-t border-gray-100 pt-2 mt-1">
-            <span className="text-gray-900">Total</span>
-            <span className="text-indigo-600">
+          <div className="flex justify-between px-4 py-3 bg-white border-t border-gray-200">
+            <span className="text-sm font-bold text-gray-800">Total Due</span>
+            <span className="text-base font-bold text-gray-900">
               {formatCurrency(current.total)}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       <div className="px-5 pb-5 flex items-center gap-2">
         {isEditing ? (
           <>
-            <button
+            <Button
               onClick={() => {
                 setIsEditing(false);
                 onEdit(editedInvoice);
               }}
-              className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+              className="flex-1 rounded-xl gap-2 bg-gray-900 hover:bg-black"
             >
               <Check className="w-4 h-4" />
               Save Changes
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => {
                 setIsEditing(false);
                 setEditedInvoice(invoice);
               }}
-              className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+              className="rounded-xl"
             >
               Cancel
-            </button>
+            </Button>
           </>
         ) : isConfirmed ? (
           <div className="w-full flex items-center gap-2">
-            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-2 rounded-xl flex-1">
+            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-2 rounded-xl flex-1 border border-emerald-100">
               <Check className="w-4 h-4" />
               <span className="text-sm font-medium">
                 Saved as {invoiceNumber}
@@ -379,27 +451,26 @@ export function InvoicePreviewCard({
           </div>
         ) : (
           <>
-            <button
+            <Button
               onClick={() => onConfirm(current)}
-              className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
-              style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.3)" }}
+              className="flex-1 rounded-xl gap-2 bg-gray-900 hover:bg-black"
+              style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
             >
               <Check className="w-4 h-4" />
               Confirm Invoice
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
               onClick={() => setIsEditing(true)}
-              className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+              className="rounded-xl"
               title="Edit"
             >
               <Edit2 className="w-4 h-4" />
-            </button>
+            </Button>
           </>
         )}
       </div>
     </div>
   );
 }
-
-const inputClass =
-  "w-full text-sm text-gray-900 border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white";

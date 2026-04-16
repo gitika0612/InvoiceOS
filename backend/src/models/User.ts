@@ -1,13 +1,27 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-// This defines the shape of a User in our database
 export interface IUserDocument extends Document {
-  clerkId: string; // Unique ID from Clerk
-  email: string; // User's email
-  name: string; // User's full name
-  imageUrl: string; // Profile picture URL
+  clerkId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  imageUrl: string;
   plan: "free" | "pro" | "business";
-  isActive: boolean; // Soft delete flag
+  isActive: boolean;
+  // Business profile
+  businessName?: string;
+  gstin?: string;
+  pan?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  phone?: string;
+  // Bank details
+  bankName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  upiId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,8 +31,8 @@ const userSchema = new Schema<IUserDocument>(
     clerkId: {
       type: String,
       required: true,
-      unique: true, // One user per Clerk ID
-      index: true, // Fast lookup by clerkId
+      unique: true,
+      index: true,
     },
     email: {
       type: String,
@@ -26,7 +40,12 @@ const userSchema = new Schema<IUserDocument>(
       lowercase: true,
       trim: true,
     },
-    name: {
+    firstName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    lastName: {
       type: String,
       trim: true,
       default: "",
@@ -44,9 +63,23 @@ const userSchema = new Schema<IUserDocument>(
       type: Boolean,
       default: true,
     },
+    // Business profile
+    businessName: { type: String, default: "" },
+    gstin: { type: String, default: "" },
+    pan: { type: String, default: "" },
+    address: { type: String, default: "" },
+    city: { type: String, default: "" },
+    state: { type: String, default: "" },
+    pincode: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    // Bank details
+    bankName: { type: String, default: "" },
+    accountNumber: { type: String, default: "" },
+    ifscCode: { type: String, default: "" },
+    upiId: { type: String, default: "" },
   },
   {
-    timestamps: true, // Auto adds createdAt and updatedAt
+    timestamps: true,
   }
 );
 

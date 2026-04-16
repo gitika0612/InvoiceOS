@@ -1,5 +1,6 @@
 import { useUser } from "@clerk/clerk-react";
 import { Zap } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -23,39 +24,36 @@ export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
       }`}
     >
       {/* Avatar */}
-      <div
-        className={`
-        w-8 h-8 rounded-full flex items-center justify-center
-        text-xs font-bold flex-shrink-0
-        ${
-          !isUser
-            ? "bg-indigo-600 text-white"
-            : "bg-gray-100 text-gray-600 border border-gray-200"
-        }
-      `}
-      >
-        {isUser ? (
-          userInitial
-        ) : (
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: "#4F46E5" }}
-          >
-            <Zap className="w-3.5 h-3.5 text-white" fill="white" />
-          </div>
-        )}
-      </div>
+      {isUser ? (
+        <Avatar className="w-8 h-8 flex-shrink-0 border border-gray-200">
+          <AvatarImage src={user?.imageUrl} />
+          <AvatarFallback className="bg-gray-100 text-gray-600 text-xs font-bold">
+            {userInitial}
+          </AvatarFallback>
+        </Avatar>
+      ) : (
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+          style={{ background: "#4F46E5" }}
+        >
+          <Zap className="w-3.5 h-3.5 text-white" fill="white" />
+        </div>
+      )}
 
       {/* Bubble */}
       <div
-        className={`max-w-[75%] ${
+        className={`max-w-[75%] flex flex-col gap-1 ${
           isUser ? "items-end" : "items-start"
-        } flex flex-col gap-1`}
+        }`}
       >
         <div
           className={`
           px-4 py-3 rounded-2xl text-sm leading-relaxed
-         bg-white text-gray-800 border border-gray-100 shadow-soft rounded-bl-sm
+          ${
+            isUser
+              ? "bg-indigo-600 text-white rounded-br-sm"
+              : "bg-white text-gray-800 border border-gray-100 shadow-sm rounded-bl-sm"
+          }
         `}
         >
           {content}

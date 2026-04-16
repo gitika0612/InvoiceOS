@@ -1,5 +1,7 @@
 import { ReactNode } from "react";
 import { Zap, Sparkles, Shield, TrendingUp, CheckCircle2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 const features = [
   {
@@ -45,12 +47,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         {/* Hero */}
         <div className="relative z-10 space-y-8">
           <div className="space-y-5">
-            <div className="inline-flex items-center gap-2 glass rounded-full px-4 py-2">
+            <Badge className="glass rounded-full px-4 py-2 border-0 bg-white/10 text-white/90 hover:bg-white/10 gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-sm text-white/90 font-medium">
-                AI-native invoicing platform
-              </span>
-            </div>
+              AI-native invoicing platform
+            </Badge>
+
             <h1 className="text-5xl font-bold text-white leading-[1.1] tracking-tight">
               Smart invoicing
               <br />
@@ -82,17 +83,20 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             ))}
           </div>
 
-          <div className="flex items-center gap-10 pt-4 border-t border-white/10">
-            {[
-              { value: "2 min", label: "avg invoice time" },
-              { value: "98%", label: "payment capture" },
-              { value: "10k+", label: "businesses" },
-            ].map((s) => (
-              <div key={s.label}>
-                <div className="text-2xl font-bold text-white">{s.value}</div>
-                <div className="text-xs text-white/45 mt-0.5">{s.label}</div>
-              </div>
-            ))}
+          <div className="pt-4">
+            <Separator className="bg-white/10 mb-6" />
+            <div className="flex items-center gap-10">
+              {[
+                { value: "2 min", label: "avg invoice time" },
+                { value: "98%", label: "payment capture" },
+                { value: "10k+", label: "businesses" },
+              ].map((s) => (
+                <div key={s.label}>
+                  <div className="text-2xl font-bold text-white">{s.value}</div>
+                  <div className="text-xs text-white/45 mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -132,7 +136,6 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           </div>
           <span className="text-xl font-bold text-gray-900">InvoiceOS</span>
         </div>
-
         <div className="w-full max-w-[420px]">{children}</div>
       </div>
     </div>

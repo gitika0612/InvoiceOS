@@ -1,4 +1,6 @@
 import { FileText, ChevronRight, CheckCircle2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface InvoiceMiniCardProps {
   clientName: string;
@@ -24,15 +26,17 @@ export function InvoiceMiniCard({
   onClick,
 }: InvoiceMiniCardProps) {
   return (
-    <button
+    <Button
+      variant="outline"
       onClick={onClick}
       className={`
-        mt-3 flex items-center gap-3 px-4 py-3 rounded-2xl border
+        mt-3 flex items-center gap-3 px-4 py-3 rounded-2xl h-auto
         transition-all hover:-translate-y-0.5 text-left w-full max-w-sm group
+        justify-start
         ${
           isConfirmed
-            ? "bg-white border-emerald-200 hover:border-emerald-300 hover:shadow-md"
-            : "bg-white border-gray-200 hover:border-indigo-300 hover:shadow-md"
+            ? "border-emerald-200 hover:border-emerald-300 hover:shadow-md"
+            : "border-gray-200 hover:border-indigo-300 hover:shadow-md"
         }
       `}
     >
@@ -44,9 +48,9 @@ export function InvoiceMiniCard({
       `}
       >
         {isConfirmed ? (
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
         ) : (
-          <FileText className="w-4 h-4 text-indigo-500" />
+          <FileText className="w-4 h-4 text-gray-500" />
         )}
       </div>
 
@@ -61,13 +65,16 @@ export function InvoiceMiniCard({
             {clientName}
           </p>
           {isConfirmed && invoiceNumber ? (
-            <span className="text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex-shrink-0">
+            <Badge className="text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full flex-shrink-0">
               {invoiceNumber}
-            </span>
+            </Badge>
           ) : (
-            <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full flex-shrink-0">
+            <Badge
+              variant="secondary"
+              className="text-xs font-medium px-2 py-0 rounded-full flex-shrink-0"
+            >
               Draft
-            </span>
+            </Badge>
           )}
         </div>
         <p
@@ -88,6 +95,6 @@ export function InvoiceMiniCard({
             : "text-gray-300 group-hover:text-indigo-400"
         }`}
       />
-    </button>
+    </Button>
   );
 }

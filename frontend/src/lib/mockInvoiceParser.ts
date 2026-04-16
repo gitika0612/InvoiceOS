@@ -1,15 +1,21 @@
 import api from "@/lib/api";
 import { ParsedInvoice } from "@/components/invoice/InvoicePreviewCard";
 
-// Parse invoice using real LangChain AI
-export async function parseInvoiceWithAI(
-  prompt: string
-): Promise<ParsedInvoice> {
-  const response = await api.post("/invoices/parse", { prompt });
-  return response.data.invoice;
+export interface ParseResult {
+  isMultiple: boolean;
+  invoice?: ParsedInvoice;
+  invoices?: ParsedInvoice[];
 }
 
-// Save confirmed invoice to MongoDB
+export async function parseInvoiceWithAI(prompt: string): Promise<ParseResult> {
+  const response = await api.post("/invoices/parse", { prompt });
+  return {
+    isMultiple: response.data.isMultiple,
+    invoice: response.data.invoice,
+    invoices: response.data.invoices,
+  };
+}
+
 export async function saveInvoice(
   invoice: ParsedInvoice,
   userId: string,
@@ -18,13 +24,15 @@ export async function saveInvoice(
   const response = await api.post("/invoices/save", {
     userId,
     clientName: invoice.clientName,
-    lineItems: invoice.lineItems, // ← make sure this is here
+    lineItems: invoice.lineItems,
     paymentTermsDays: invoice.paymentTermsDays,
     gstPercent: invoice.gstPercent,
     subtotal: invoice.subtotal,
     gstAmount: invoice.gstAmount,
     total: invoice.total,
     originalPrompt,
+    invoiceDate: invoice.invoiceDate, // ← new
+    invoiceMonth: invoice.invoiceMonth, // ← new
   });
   return {
     invoiceNumber: response.data.invoice.invoiceNumber,

@@ -1,3 +1,6 @@
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
 type Mode = "chat" | "memory" | "template";
 
 interface ModeSwitcherProps {
@@ -32,32 +35,36 @@ const modes = [
 export function ModeSwitcher({ activeMode, onModeChange }: ModeSwitcherProps) {
   return (
     <div className="w-full">
-      <div className="flex items-center gap-2 p-1 bg-gray-100 rounded-xl w-fit">
+      <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit">
         {modes.map((mode) => (
-          <button
+          <Button
             key={mode.id}
+            variant={activeMode === mode.id ? "default" : "ghost"}
+            size="sm"
             disabled={mode.disabled}
             onClick={() => !mode.disabled && onModeChange(mode.id)}
             className={`
-              flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-              transition-all duration-200
+              gap-2 rounded-lg text-sm font-medium transition-all duration-200
               ${
                 activeMode === mode.id
-                  ? "bg-white text-gray-900 shadow-soft"
+                  ? "bg-white text-gray-900 shadow-sm hover:bg-white"
                   : mode.disabled
-                  ? "text-gray-400 cursor-not-allowed"
-                  : "text-gray-600 hover:text-gray-900 cursor-pointer"
+                  ? "text-gray-400 cursor-not-allowed hover:bg-transparent"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
               }
             `}
           >
             <span>{mode.icon}</span>
             <span>{mode.label}</span>
             {mode.disabled && (
-              <span className="text-xs bg-gray-200 text-gray-400 px-1.5 py-0.5 rounded-full">
+              <Badge
+                variant="secondary"
+                className="text-xs px-1.5 py-0 rounded-full font-normal h-4"
+              >
                 Soon
-              </span>
+              </Badge>
             )}
-          </button>
+          </Button>
         ))}
       </div>
       <p className="text-xs text-gray-400 mt-2 ml-1">

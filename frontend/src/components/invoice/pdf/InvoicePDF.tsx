@@ -8,6 +8,7 @@ import {
   Path,
 } from "@react-pdf/renderer";
 import { ParsedInvoice } from "../InvoicePreviewCard";
+import { UserProfile } from "@/hooks/useAuth";
 
 const styles = StyleSheet.create({
   page: {
@@ -66,17 +67,18 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontFamily: "Helvetica-Bold",
     color: "#9CA3AF",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   sectionValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: "Helvetica-Bold",
     color: "#111827",
     marginBottom: 2,
   },
   sectionSub: {
-    fontSize: 10,
+    fontSize: 9,
     color: "#6B7280",
+    marginBottom: 1,
   },
   table: {
     marginBottom: 24,
@@ -114,7 +116,7 @@ const styles = StyleSheet.create({
   totalsBox: {
     marginLeft: "auto",
     width: 240,
-    marginBottom: 40,
+    marginBottom: 32,
   },
   totalRow: {
     flexDirection: "row",
@@ -154,19 +156,33 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     color: "#4F46E5",
   },
-  paymentTermsRow: {
+  // Bank details section
+  bankBox: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 6,
+    padding: 12,
+    marginBottom: 24,
+  },
+  bankTitle: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: "#9CA3AF",
+    marginBottom: 8,
+  },
+  bankRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 5,
+    marginBottom: 3,
   },
-  paymentTermsLabel: {
-    fontSize: 10,
-    color: "#6B7280",
+  bankLabel: {
+    fontSize: 9,
+    color: "#9CA3AF",
+    width: 80,
   },
-  paymentTermsValue: {
-    fontSize: 10,
+  bankValue: {
+    fontSize: 9,
     fontFamily: "Helvetica-Bold",
     color: "#374151",
+    flex: 1,
   },
   footer: {
     borderTop: "1 solid #E5E7EB",
@@ -196,38 +212,60 @@ interface InvoicePDFProps {
   invoice: ParsedInvoice;
   invoiceNumber: string;
   userName?: string;
+  profile?: UserProfile | null;
 }
 
 function formatINR(amount: number) {
   return `Rs. ${amount.toLocaleString("en-IN")}`;
 }
 
-function getInvoiceDates(paymentTermsDays?: number) {
-  const now = new Date();
-  const days = paymentTermsDays || 15;
-  const due = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+function getInvoiceDates(invoice: ParsedInvoice) {
+  const issueDate = invoice.invoiceDate
+    ? new Date(invoice.invoiceDate)
+    : new Date();
+  const days = invoice.paymentTermsDays || 15;
+  const due = new Date(issueDate.getTime() + days * 24 * 60 * 60 * 1000);
 
-  const today = now.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-
-  const dueDate = due.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-
-  return { today, dueDate };
+  return {
+    today: issueDate.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    }),
+    dueDate: due.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    }),
+  };
 }
 
 export function InvoicePDF({
   invoice,
   invoiceNumber,
   userName = "InvoiceOS User",
+  profile,
 }: InvoicePDFProps) {
-  const { today, dueDate } = getInvoiceDates(invoice.paymentTermsDays);
+  const { today, dueDate } = getInvoiceDates(invoice);
+
+  // Build seller name — prefer businessName, fallback to userName
+  const sellerName = profile?.businessName || userName;
+
+  // Build seller address
+  const addressParts = [
+    profile?.address,
+    profile?.city,
+    profile?.state,
+    profile?.pincode,
+  ].filter(Boolean);
+  const sellerAddress = addressParts.join(", ");
+
+  // Check if bank details exist
+  const hasBankDetails =
+    profile?.bankName ||
+    profile?.accountNumber ||
+    profile?.ifscCode ||
+    profile?.upiId;
 
   return (
     <Document>
@@ -242,7 +280,9 @@ export function InvoicePDF({
                 </Svg>
               </View>
             </View>
-            <Text style={styles.brandName}>InvoiceOS</Text>
+            <Text style={styles.brandName}>
+              {profile?.businessName || "InvoiceOS"}
+            </Text>
           </View>
           <View>
             <Text style={styles.invoiceLabel}>INVOICE</Text>
@@ -255,25 +295,40 @@ export function InvoicePDF({
 
         {/* ── From / To / Date ── */}
         <View style={styles.fromToRow}>
+          {/* FROM */}
           <View style={styles.fromToBox}>
             <Text style={styles.sectionLabel}>FROM</Text>
-            <Text style={styles.sectionValue}>{userName}</Text>
-            <Text style={styles.sectionSub}>via InvoiceOS</Text>
+            <Text style={styles.sectionValue}>{sellerName}</Text>
+            {sellerAddress ? (
+              <Text style={styles.sectionSub}>{sellerAddress}</Text>
+            ) : null}
+            {profile?.phone ? (
+              <Text style={styles.sectionSub}>{profile.phone}</Text>
+            ) : null}
+            {profile?.gstin ? (
+              <Text style={styles.sectionSub}>GSTIN: {profile.gstin}</Text>
+            ) : null}
           </View>
+
+          {/* BILL TO */}
           <View style={styles.fromToBox}>
             <Text style={styles.sectionLabel}>BILL TO</Text>
             <Text style={styles.sectionValue}>{invoice.clientName}</Text>
           </View>
+
+          {/* DATES */}
           <View style={styles.fromToBox}>
             <Text style={styles.sectionLabel}>INVOICE DATE</Text>
             <Text style={styles.sectionValue}>{today}</Text>
             <Text style={styles.sectionSub}>Due: {dueDate}</Text>
+            <Text style={[styles.sectionSub, { marginTop: 4 }]}>
+              Net {invoice.paymentTermsDays} days
+            </Text>
           </View>
         </View>
 
         {/* ── Table ── */}
         <View style={styles.table}>
-          {/* Table header */}
           <View style={styles.tableHeader}>
             <View style={styles.tableColDesc}>
               <Text style={styles.tableHeaderText}>DESCRIPTION</Text>
@@ -289,7 +344,6 @@ export function InvoicePDF({
             </View>
           </View>
 
-          {/* Line items — supports multiple */}
           {invoice.lineItems && invoice.lineItems.length > 0 ? (
             invoice.lineItems.map((item, index) => (
               <View key={index} style={styles.tableRow}>
@@ -306,7 +360,7 @@ export function InvoicePDF({
                 </View>
                 <View style={styles.tableColQty}>
                   <Text style={[styles.tableBodyText, { textAlign: "center" }]}>
-                    {item.quantity} {item.unit}
+                    {item.quantity}
                   </Text>
                 </View>
                 <View style={styles.tableColRate}>
@@ -322,7 +376,6 @@ export function InvoicePDF({
               </View>
             ))
           ) : (
-            // Fallback for old invoices without lineItems
             <View style={styles.tableRow}>
               <View style={styles.tableColDesc}>
                 <Text style={styles.tableBodyBold}>
@@ -360,19 +413,7 @@ export function InvoicePDF({
               {formatINR(invoice.gstAmount)}
             </Text>
           </View>
-
-          {/* Payment terms */}
-          {invoice.paymentTermsDays && (
-            <View style={styles.paymentTermsRow}>
-              <Text style={styles.paymentTermsLabel}>Payment Terms</Text>
-              <Text style={styles.paymentTermsValue}>
-                {invoice.paymentTermsDays} days
-              </Text>
-            </View>
-          )}
-
           <View style={styles.totalDivider} />
-
           <View style={styles.grandTotalRow}>
             <Text style={styles.grandTotalLabel}>Total Due</Text>
             <Text style={styles.grandTotalValue}>
@@ -380,6 +421,37 @@ export function InvoicePDF({
             </Text>
           </View>
         </View>
+
+        {/* ── Bank Details ── */}
+        {hasBankDetails && (
+          <View style={styles.bankBox}>
+            <Text style={styles.bankTitle}>PAYMENT DETAILS</Text>
+            {profile?.bankName && (
+              <View style={styles.bankRow}>
+                <Text style={styles.bankLabel}>Bank</Text>
+                <Text style={styles.bankValue}>{profile.bankName}</Text>
+              </View>
+            )}
+            {profile?.accountNumber && (
+              <View style={styles.bankRow}>
+                <Text style={styles.bankLabel}>Account No.</Text>
+                <Text style={styles.bankValue}>{profile.accountNumber}</Text>
+              </View>
+            )}
+            {profile?.ifscCode && (
+              <View style={styles.bankRow}>
+                <Text style={styles.bankLabel}>IFSC</Text>
+                <Text style={styles.bankValue}>{profile.ifscCode}</Text>
+              </View>
+            )}
+            {profile?.upiId && (
+              <View style={styles.bankRow}>
+                <Text style={styles.bankLabel}>UPI</Text>
+                <Text style={styles.bankValue}>{profile.upiId}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ── Footer ── */}
         <View style={styles.footer}>

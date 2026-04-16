@@ -16,11 +16,19 @@ import {
   Edit2,
 } from "lucide-react";
 import { downloadInvoicePDF } from "@/lib/downloadPDF";
-import { deleteInvoice, getUserInvoices } from "@/lib/mockInvoiceParser";
+import {
+  deleteInvoice,
+  getUserInvoices,
+  updateInvoice,
+} from "@/lib/mockInvoiceParser";
 import { DeleteInvoiceModal } from "@/components/invoice/DeleteInvoiceModal";
 import { EditInvoiceModal } from "@/components/invoice/EditInvoiceModal";
-import { updateInvoice } from "@/lib/mockInvoiceParser";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
 
 type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 type FilterTab = "all" | InvoiceStatus;
@@ -29,15 +37,12 @@ interface Invoice {
   _id: string;
   invoiceNumber: string;
   clientName: string;
-  // New format
   lineItems?: LineItem[];
   paymentTermsDays?: number;
-  // Legacy
   workDescription?: string;
   quantity?: number;
   quantityUnit?: string;
   ratePerUnit?: number;
-  // Common
   gstPercent: number;
   subtotal: number;
   gstAmount: number;
@@ -62,6 +67,14 @@ const TABS: { label: string; value: FilterTab }[] = [
   { label: "Overdue", value: "overdue" },
 ];
 
+const AVATAR_COLORS = [
+  "bg-indigo-100 text-indigo-600",
+  "bg-emerald-100 text-emerald-600",
+  "bg-orange-100 text-orange-600",
+  "bg-pink-100 text-pink-600",
+  "bg-violet-100 text-violet-600",
+];
+
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -78,21 +91,8 @@ function formatINR(amount: number) {
   }).format(amount);
 }
 
-function getInitial(name: string) {
-  return name.charAt(0).toUpperCase();
-}
-
-const AVATAR_COLORS = [
-  "bg-indigo-100 text-indigo-600",
-  "bg-emerald-100 text-emerald-600",
-  "bg-orange-100 text-orange-600",
-  "bg-pink-100 text-pink-600",
-  "bg-violet-100 text-violet-600",
-];
-
 function getAvatarColor(name: string) {
-  const index = name.charCodeAt(0) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[index];
+  return AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
 }
 
 export function InvoiceListPage() {
@@ -110,7 +110,6 @@ export function InvoiceListPage() {
   );
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
 
-  // Close menu when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -123,7 +122,7 @@ export function InvoiceListPage() {
 
   useEffect(() => {
     if (!isLoaded || !user) return;
-    const fetch = async () => {
+    (async () => {
       try {
         const data = await getUserInvoices(user.id);
         setInvoices(data);
@@ -132,8 +131,7 @@ export function InvoiceListPage() {
       } finally {
         setLoading(false);
       }
-    };
-    fetch();
+    })();
   }, [user]);
 
   const filtered = invoices.filter((inv) => {
@@ -156,7 +154,6 @@ export function InvoiceListPage() {
           subtotal: inv.subtotal,
           gstAmount: inv.gstAmount,
           total: inv.total,
-          // Legacy fallback
           workDescription: inv.workDescription,
           quantity: inv.quantity,
           quantityUnit: inv.quantityUnit,
@@ -174,7 +171,6 @@ export function InvoiceListPage() {
     setDeletingId(invoiceId);
     try {
       await deleteInvoice(invoiceId);
-      // Remove from local state immediately
       setInvoices((prev) => prev.filter((inv) => inv._id !== invoiceId));
       setShowDeleteConfirm(null);
     } catch (err) {
@@ -186,7 +182,6 @@ export function InvoiceListPage() {
 
   const handleSaveEdit = async (id: string, data: Partial<Invoice>) => {
     await updateInvoice(id, data);
-    // Update local state
     setInvoices((prev) =>
       prev.map((inv) => (inv._id === id ? { ...inv, ...data } : inv))
     );
@@ -198,12 +193,14 @@ export function InvoiceListPage() {
       <header className="bg-white border-b border-gray-100 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => navigate("/dashboard")}
-              className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              className="rounded-lg text-gray-400 hover:text-gray-600"
             >
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </Button>
             <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-lg flex items-center justify-center"
@@ -218,7 +215,7 @@ export function InvoiceListPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
-        {/* ── Page header ── */}
+        {/* Page header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
@@ -232,54 +229,49 @@ export function InvoiceListPage() {
                   }`}
             </p>
           </div>
-          <button
+          <Button
             onClick={() => navigate("/create")}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:-translate-y-0.5"
-            style={{
-              background: "#4F46E5",
-              boxShadow: "0 4px 12px rgba(79,70,229,0.3)",
-            }}
+            className="gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-0.5 transition-all"
+            style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.3)" }}
           >
             <Plus className="w-4 h-4" />
             New Invoice
-          </button>
+          </Button>
         </div>
 
-        {/* ── Search + Tabs row ── */}
+        {/* Search + Tabs */}
         <div className="flex items-center gap-6 mb-6">
-          {/* Search */}
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <Input
               placeholder="Search invoices..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 transition-all"
+              className="pl-10 rounded-xl focus-visible:ring-indigo-400"
             />
           </div>
 
-          {/* Tabs */}
           <div className="flex items-center gap-1">
             {TABS.map((tab) => (
-              <button
+              <Button
                 key={tab.value}
+                variant="ghost"
+                size="sm"
                 onClick={() => setActiveTab(tab.value)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`rounded-lg px-4 text-sm font-medium ${
                   activeTab === tab.value
-                    ? "bg-gray-100 text-gray-900"
+                    ? "bg-gray-100 text-gray-900 hover:bg-gray-100"
                     : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 {tab.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
 
-        {/* ── Table ── */}
+        {/* Table */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-soft">
-          {" "}
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -302,25 +294,22 @@ export function InvoiceListPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Invoice
-                  </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Client
-                  </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Date
-                  </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Due Date
-                  </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Amount
-                  </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    Status
-                  </th>
-                  <th className="px-6 py-4" />
+                  {[
+                    "Invoice",
+                    "Client",
+                    "Date",
+                    "Due Date",
+                    "Amount",
+                    "Status",
+                    "",
+                  ].map((h, i) => (
+                    <th
+                      key={i}
+                      className="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wide"
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -330,23 +319,26 @@ export function InvoiceListPage() {
                     onClick={() => navigate(`/invoices/${inv._id}`)}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                   >
-                    {/* Invoice number */}
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-gray-900">
                         {inv.invoiceNumber}
                       </span>
                     </td>
-
-                    {/* Client */}
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${getAvatarColor(
+                        <Avatar
+                          className={`w-8 h-8 flex-shrink-0 ${getAvatarColor(
                             inv.clientName
                           )}`}
                         >
-                          {getInitial(inv.clientName)}
-                        </div>
+                          <AvatarFallback
+                            className={`text-xs font-bold ${getAvatarColor(
+                              inv.clientName
+                            )}`}
+                          >
+                            {inv.clientName.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                         <div>
                           <p className="text-sm font-medium text-gray-900">
                             {inv.clientName}
@@ -359,53 +351,45 @@ export function InvoiceListPage() {
                         </div>
                       </div>
                     </td>
-
-                    {/* Date */}
                     <td className="px-6 py-4">
                       <span className="text-sm text-gray-500">
                         {formatDate(inv.createdAt)}
                       </span>
                     </td>
-
-                    {/* Due date */}
                     <td className="px-6 py-4">
                       <span className="text-sm text-gray-500">
                         {inv.dueDate ? formatDate(inv.dueDate) : "—"}
                       </span>
                     </td>
-
-                    {/* Amount */}
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-gray-900">
                         {formatINR(inv.total)}
                       </span>
                     </td>
-
-                    {/* Status */}
                     <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
+                      <Badge
+                        className={`capitalize rounded-full text-xs font-medium ${
                           STATUS_STYLES[inv.status]
                         }`}
                       >
                         {inv.status}
-                      </span>
+                      </Badge>
                     </td>
-
-                    {/* Actions */}
                     <td className="px-6 py-4">
                       <div className="relative">
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={(e) => {
                             e.stopPropagation();
                             setOpenMenuId(
                               openMenuId === inv._id ? null : inv._id
                             );
                           }}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+                          className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600"
                         >
                           <MoreHorizontal className="w-4 h-4" />
-                        </button>
+                        </Button>
 
                         {openMenuId === inv._id && (
                           <div
@@ -416,73 +400,72 @@ export function InvoiceListPage() {
                                 "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
                             }}
                           >
-                            {/* View */}
-                            <button
+                            <Button
+                              variant="ghost"
                               onClick={() => {
                                 setOpenMenuId(null);
                                 navigate(`/invoices/${inv._id}`);
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
                             >
                               <Eye className="w-4 h-4 text-gray-400" />
                               View
-                            </button>
-
-                            {/* Download PDF */}
-                            <button
+                            </Button>
+                            <Button
+                              variant="ghost"
                               onClick={() => handleDownloadPDF(inv)}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
                             >
                               <Download className="w-4 h-4 text-gray-400" />
                               Download PDF
-                            </button>
+                            </Button>
 
-                            {/* Edit — show based on status */}
                             {inv.status === "paid" ? (
-                              <button
+                              <Button
+                                variant="ghost"
                                 disabled
-                                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 cursor-not-allowed"
-                                title="Paid invoices cannot be edited"
+                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-300 cursor-not-allowed"
                               >
-                                <Lock className="w-4 h-4 text-gray-300" />
+                                <Lock className="w-4 h-4" />
                                 Locked
-                              </button>
+                              </Button>
                             ) : (
-                              <button
+                              <Button
+                                variant="ghost"
                                 onClick={() => {
                                   setOpenMenuId(null);
                                   setEditingInvoice(inv);
                                 }}
-                                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
                               >
                                 <Edit2 className="w-4 h-4 text-gray-400" />
                                 Edit
-                              </button>
+                              </Button>
                             )}
 
-                            {/* Send — disabled */}
-                            <button
+                            <Button
+                              variant="ghost"
                               disabled
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 cursor-not-allowed"
+                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-300 cursor-not-allowed"
                             >
-                              <Send className="w-4 h-4 text-gray-300" />
+                              <Send className="w-4 h-4" />
                               Send
-                            </button>
+                            </Button>
 
-                            <div className="my-1 border-t border-gray-100" />
+                            <Separator className="my-1" />
 
-                            {/* Delete */}
-                            <button
+                            <Button
+                              variant="ghost"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setOpenMenuId(null);
                                 setShowDeleteConfirm(inv._id);
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-red-500 hover:bg-red-50 hover:text-red-500"
                             >
                               <Trash2 className="w-4 h-4 text-red-400" />
                               Delete
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </div>

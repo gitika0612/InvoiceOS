@@ -19,20 +19,20 @@ import { downloadInvoicePDF } from "@/lib/downloadPDF";
 import { EditInvoiceModal } from "@/components/invoice/EditInvoiceModal";
 import { updateInvoice } from "@/lib/mockInvoiceParser";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 interface Invoice {
   _id: string;
   invoiceNumber: string;
   clientName: string;
-  // New format
   lineItems?: LineItem[];
   paymentTermsDays?: number;
-  // Legacy format
   workDescription?: string;
   quantity?: number;
   quantityUnit?: string;
   ratePerUnit?: number;
-  // Common fields
   gstPercent: number;
   subtotal: number;
   gstAmount: number;
@@ -99,9 +99,7 @@ export function InvoiceViewPage() {
   useEffect(() => {
     if (!id) return;
     fetchInvoiceById(id)
-      .then((invoice) => {
-        setInvoice(invoice);
-      })
+      .then(setInvoice)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
@@ -117,7 +115,6 @@ export function InvoiceViewPage() {
         subtotal: invoice.subtotal,
         gstAmount: invoice.gstAmount,
         total: invoice.total,
-        // Legacy fallback
         workDescription: invoice.workDescription,
         quantity: invoice.quantity,
         quantityUnit: invoice.quantityUnit,
@@ -146,12 +143,13 @@ export function InvoiceViewPage() {
       <div className="min-h-screen bg-[#F9FAFB] flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-900 font-semibold">Invoice not found</p>
-          <button
+          <Button
+            variant="link"
             onClick={() => navigate("/invoices")}
-            className="text-indigo-600 text-sm mt-2 hover:underline"
+            className="text-indigo-600 text-sm mt-2 p-0 h-auto"
           >
             Back to invoices
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -163,8 +161,6 @@ export function InvoiceViewPage() {
     : null;
   const isDraft = invoice.status === "draft";
   const isPaid = invoice.status === "paid";
-
-  // Determine if invoice has new lineItems format or old format
   const hasLineItems = invoice.lineItems && invoice.lineItems.length > 0;
 
   return (
@@ -173,12 +169,14 @@ export function InvoiceViewPage() {
       <header className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => navigate(-1)}
-              className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              className="rounded-xl text-gray-400 hover:text-gray-600"
             >
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </Button>
             <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-lg flex items-center justify-center"
@@ -192,35 +190,34 @@ export function InvoiceViewPage() {
 
           <div className="flex items-center gap-2">
             {isDraft && (
-              <button
+              <Button
+                variant="outline"
                 disabled
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-400 border border-gray-200 cursor-not-allowed"
+                className="gap-2 rounded-xl text-gray-400"
                 title="Send feature coming soon"
               >
                 <Send className="w-4 h-4" />
                 Send
-              </button>
+              </Button>
             )}
             {!isPaid && (
-              <button
+              <Button
+                variant="outline"
                 onClick={() => setEditing(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="gap-2 rounded-xl"
               >
                 <Edit2 className="w-4 h-4" />
                 Edit
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               onClick={handleDownload}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:-translate-y-0.5"
-              style={{
-                background: "#4F46E5",
-                boxShadow: "0 4px 12px rgba(79,70,229,0.3)",
-              }}
+              className="gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700"
+              style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.3)" }}
             >
               <Download className="w-4 h-4" />
               Download PDF
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -232,12 +229,10 @@ export function InvoiceViewPage() {
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
               {invoice.invoiceNumber}
             </h1>
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${status.class}`}
-            >
+            <Badge className={`gap-1.5 rounded-full ${status.class}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
               {status.label}
-            </span>
+            </Badge>
           </div>
           <p className="text-sm text-gray-400">
             Created on {formatDate(invoice.createdAt)}
@@ -345,7 +340,6 @@ export function InvoiceViewPage() {
                   </div>
                 </div>
 
-                {/* New format — multiple line items */}
                 {hasLineItems ? (
                   invoice.lineItems!.map((item, index) => (
                     <div
@@ -378,7 +372,6 @@ export function InvoiceViewPage() {
                     </div>
                   ))
                 ) : (
-                  // Legacy format — single line item
                   <div className="grid grid-cols-12 gap-4 px-4 py-4 border-b border-gray-100">
                     <div className="col-span-5">
                       <p className="text-sm font-semibold text-gray-900">
@@ -432,8 +425,9 @@ export function InvoiceViewPage() {
                       </span>
                     </div>
                   )}
+                  <Separator className="my-2" />
                   <div
-                    className="flex justify-between items-center px-4 py-3 rounded-xl mt-2"
+                    className="flex justify-between items-center px-4 py-3 rounded-xl"
                     style={{
                       background:
                         "linear-gradient(135deg, #EEF2FF 0%, #F5F3FF 100%)",
@@ -479,12 +473,11 @@ export function InvoiceViewPage() {
                   <p className="text-xs text-gray-400">Client</p>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Client details like email and phone will be available when you
-                  Send the Invoice.
-                </p>
-              </div>
+              <Separator className="my-4" />
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Client details like email and phone will be available when you
+                Send the Invoice.
+              </p>
             </div>
 
             {/* Actions card */}
@@ -496,29 +489,32 @@ export function InvoiceViewPage() {
                 Actions
               </p>
               <div className="space-y-2">
-                <button
+                <Button
+                  variant="outline"
                   onClick={handleDownload}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors"
+                  className="w-full justify-start gap-3 rounded-xl"
                 >
                   <Download className="w-4 h-4 text-gray-400" />
                   Download PDF
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
                   disabled
                   title="Add client email first"
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-300 border border-gray-100 cursor-not-allowed"
+                  className="w-full justify-start gap-3 rounded-xl text-gray-300 border-gray-100"
                 >
-                  <Mail className="w-4 h-4 text-gray-300" />
+                  <Mail className="w-4 h-4" />
                   Email to Client
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
                   disabled
                   title="Payment gateway coming soon"
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-300 border border-gray-100 cursor-not-allowed"
+                  className="w-full justify-start gap-3 rounded-xl text-gray-300 border-gray-100"
                 >
-                  <Copy className="w-4 h-4 text-gray-300" />
+                  <Copy className="w-4 h-4" />
                   Copy Payment Link
-                </button>
+                </Button>
               </div>
               <div className="mt-3 p-3 bg-gray-50 rounded-xl">
                 <p className="text-xs text-gray-400 leading-relaxed">
@@ -601,9 +597,9 @@ export function InvoiceViewPage() {
                   {Math.abs(daysUntilDue)} day
                   {Math.abs(daysUntilDue) !== 1 ? "s" : ""}.
                 </p>
-                <button className="mt-3 w-full py-2 rounded-xl text-xs font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors">
+                <Button className="mt-3 w-full rounded-xl text-xs bg-red-500 hover:bg-red-600">
                   Send Reminder
-                </button>
+                </Button>
               </div>
             )}
           </div>

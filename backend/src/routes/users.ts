@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { syncUser, getMe } from "../controllers/userController";
+import {
+  syncUser,
+  getMe,
+  getProfile,
+  updateProfile,
+} from "../controllers/userController";
 
 const router = Router();
 
@@ -8,5 +13,8 @@ router.post("/sync", syncUser);
 
 // Get current user from DB
 router.get("/me", getMe);
+
+router.get("/profile", getProfile);
+router.put("/profile", updateProfile);
 
 export default router;

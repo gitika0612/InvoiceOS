@@ -6,6 +6,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { CreateInvoicePage } from "./pages/create-invoice/CreateInvoicePage";
 import { InvoiceListPage } from "./pages/invoices/InvoiceListPage";
 import { InvoiceViewPage } from "./pages/invoices/InvoiceViewPage";
+import { ProfilePage } from "./pages/ProfilePage";
 
 export default function App() {
   return (
@@ -58,6 +59,19 @@ export default function App() {
           <>
             <SignedIn>
               <InvoiceViewPage />
+            </SignedIn>
+            <SignedOut>
+              <RedirectToSignIn />
+            </SignedOut>
+          </>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <>
+            <SignedIn>
+              <ProfilePage />
             </SignedIn>
             <SignedOut>
               <RedirectToSignIn />

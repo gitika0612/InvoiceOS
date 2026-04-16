@@ -7,6 +7,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { ParsedInvoice } from "./InvoicePreviewCard";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 interface InvoicePanelCardProps {
   messageId: string;
@@ -51,7 +53,7 @@ export function InvoicePanelCard({
       }
     `}
     >
-      {/* Card header — always visible */}
+      {/* Card header */}
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-4 py-3 text-left"
@@ -86,7 +88,6 @@ export function InvoicePanelCard({
           </p>
         </div>
 
-        {/* Expand toggle */}
         {isExpanded ? (
           <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
         ) : (
@@ -128,7 +129,8 @@ export function InvoicePanelCard({
                 {formatINR(invoice.gstAmount)}
               </span>
             </div>
-            <div className="flex justify-between text-xs font-bold border-t border-gray-100 pt-1.5 mt-1">
+            <Separator className="my-1" />
+            <div className="flex justify-between text-xs font-bold">
               <span className="text-gray-900">Total</span>
               <span className="text-indigo-600">
                 {formatINR(invoice.total)}
@@ -155,40 +157,44 @@ export function InvoicePanelCard({
           {/* Actions */}
           {isConfirmed ? (
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={onView}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                className="flex-1 rounded-xl text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 gap-1.5"
               >
                 <Eye className="w-3.5 h-3.5" />
                 View
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={onDownload}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                className="flex-1 rounded-xl text-xs gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
                 PDF
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="flex gap-2">
-              <button
+              <Button
+                size="sm"
                 onClick={onConfirm}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white transition-all hover:-translate-y-0.5"
-                style={{
-                  background: "#4F46E5",
-                  boxShadow: "0 4px 8px rgba(79,70,229,0.3)",
-                }}
+                className="flex-1 rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 gap-1.5"
+                style={{ boxShadow: "0 4px 8px rgba(79,70,229,0.3)" }}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Confirm
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={onDiscard}
-                className="px-3 py-2 rounded-xl text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 transition-colors"
+                className="px-3 rounded-xl text-xs text-red-500 bg-red-50 hover:bg-red-100 hover:text-red-600"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </div>
           )}
 
