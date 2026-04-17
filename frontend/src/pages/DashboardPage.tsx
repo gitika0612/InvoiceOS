@@ -18,6 +18,8 @@ import {
   AlertCircle,
   CheckCircle2,
   User,
+  X,
+  AlertTriangle,
 } from "lucide-react";
 import { fetchDashboardStats } from "@/lib/mockInvoiceParser";
 import { Button } from "@/components/ui/button";
@@ -101,7 +103,7 @@ export function DashboardPage() {
   const location = useLocation();
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
-  const { syncUser } = useAuth();
+  const { syncUser, getUserProfile } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [stats, setStats] = useState({
     totalInvoices: 0,
@@ -111,6 +113,7 @@ export function DashboardPage() {
   });
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [showOnboardingBanner, setShowOnboardingBanner] = useState(false);
 
   const STATS = [
     {
@@ -157,8 +160,14 @@ export function DashboardPage() {
   useEffect(() => {
     if (!isLoaded || !user) return;
     syncUser();
-    fetchDashboardStats(user.id)
-      .then((data) => {
+
+    // Check onboarding status + fetch stats in parallel
+    Promise.all([getUserProfile(), fetchDashboardStats(user.id)])
+      .then(([profile, data]) => {
+        // Show banner if not onboarded
+        if (!profile?.isOnboarded) {
+          setShowOnboardingBanner(true);
+        }
         setStats(data.stats);
         setRecentInvoices(data.recentInvoices);
       })
@@ -185,7 +194,7 @@ export function DashboardPage() {
           </div>
           {!collapsed && (
             <span className="font-bold text-gray-900 text-base tracking-tight">
-              InvoiceOS
+              Ledger
             </span>
           )}
           <Button
@@ -256,7 +265,7 @@ export function DashboardPage() {
             }`}
           >
             <Settings className="w-4 h-4 flex-shrink-0" />
-            {!collapsed && <span>Settings</span>}
+            {!collapsed && <span> Company Settings</span>}
           </Button>
 
           {!collapsed && (
@@ -327,6 +336,40 @@ export function DashboardPage() {
         </header>
 
         <main className="px-8 py-8">
+          {/* ── Onboarding reminder banner ── */}
+          {showOnboardingBanner && (
+            <div className="mb-6 flex items-center gap-4 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-900">
+                  Complete your company profile
+                </p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  Your comapny name, GSTIN and bank details will auto-fill on
+                  every invoice you create.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  onClick={() => navigate("/onboarding")}
+                  className="rounded-xl text-xs bg-amber-600 hover:bg-amber-700 h-8 px-3"
+                >
+                  Setup Now
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowOnboardingBanner(false)}
+                  className="w-7 h-7 text-amber-500 hover:text-amber-700 hover:bg-amber-100"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Stats grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {STATS.map((stat) => (

@@ -84,8 +84,8 @@ export async function addChatMessage(
 export async function confirmInvoiceInMessage(
   sessionId: string,
   messageId: string,
-  invoiceId: string,
-  invoiceNumber: string
+  invoiceNumber: string,
+  invoiceId: string
 ): Promise<void> {
   await api.patch(`/chats/${sessionId}/messages/${messageId}/confirm`, {
     invoiceId,

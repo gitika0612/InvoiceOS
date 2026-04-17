@@ -186,20 +186,6 @@ export function InvoicePreviewCard({
               <p className="text-gray-700 text-xs font-semibold">{dueDate}</p>
             </div>
           </div>
-          <div>
-            <p className="text-gray-400 text-xs">Payment Terms</p>
-            <p className="text-gray-700 text-xs font-semibold">
-              Net {current.paymentTermsDays} days
-            </p>
-          </div>
-          <div>
-            <p className="text-gray-400 text-xs">Items · GST</p>
-            <p className="text-gray-700 text-xs font-semibold">
-              {current.lineItems?.length || 0} item
-              {(current.lineItems?.length || 0) !== 1 ? "s" : ""} ·{" "}
-              {current.gstPercent}%
-            </p>
-          </div>
         </div>
       </div>
 

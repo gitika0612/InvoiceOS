@@ -1,7 +1,8 @@
 import { Router } from "express";
 import {
   parseInvoice,
-  saveInvoice,
+  saveDraftInvoice,
+  confirmInvoice,
   getUserInvoices,
   updateInvoice,
   getDashboardStats,
@@ -12,10 +13,11 @@ import {
 const router = Router();
 
 router.post("/parse", parseInvoice);
-router.post("/save", saveInvoice);
+router.post("/save", saveDraftInvoice);
+router.patch("/:id/confirm", confirmInvoice);
 router.get("/dashboard-stats", getDashboardStats);
-router.get("/:id", getInvoiceById);
 router.get("/", getUserInvoices);
+router.get("/:id", getInvoiceById);
 router.put("/:id", updateInvoice);
 router.delete("/:id", removeInvoice);
 

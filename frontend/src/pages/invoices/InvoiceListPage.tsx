@@ -28,15 +28,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
+import { SendInvoiceModal } from "@/components/invoice/SendInvoiceModel";
 
 type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
-type FilterTab = "all" | InvoiceStatus;
+type FilterTab = "all" | "draft" | "saved" | "sent" | "paid" | "overdue";
 
 interface Invoice {
   _id: string;
   invoiceNumber: string;
   clientName: string;
+  isConfirmed: boolean;
   lineItems?: LineItem[];
   paymentTermsDays?: number;
   workDescription?: string;
@@ -52,16 +53,27 @@ interface Invoice {
   dueDate: string;
 }
 
-const STATUS_STYLES: Record<InvoiceStatus, string> = {
-  draft: "bg-gray-100 text-gray-600",
-  sent: "bg-blue-50 text-blue-600",
-  paid: "bg-emerald-50 text-emerald-600",
-  overdue: "bg-red-50 text-red-500",
-};
+// ── UI label based on status + isConfirmed ──
+function getDisplayStatus(inv: Invoice): {
+  label: string;
+  style: string;
+} {
+  if (inv.status === "sent")
+    return { label: "Sent", style: "bg-blue-50 text-blue-600" };
+  if (inv.status === "paid")
+    return { label: "Paid", style: "bg-emerald-50 text-emerald-600" };
+  if (inv.status === "overdue")
+    return { label: "Overdue", style: "bg-red-50 text-red-500" };
+  // status === "draft"
+  if (inv.isConfirmed)
+    return { label: "Saved", style: "bg-indigo-50 text-indigo-600" };
+  return { label: "Draft", style: "bg-gray-100 text-gray-500" };
+}
 
 const TABS: { label: string; value: FilterTab }[] = [
   { label: "All", value: "all" },
   { label: "Draft", value: "draft" },
+  { label: "Saved", value: "saved" },
   { label: "Sent", value: "sent" },
   { label: "Paid", value: "paid" },
   { label: "Overdue", value: "overdue" },
@@ -95,6 +107,14 @@ function getAvatarColor(name: string) {
   return AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
 }
 
+// ── Filter logic ──
+function matchesTab(inv: Invoice, tab: FilterTab): boolean {
+  if (tab === "all") return true;
+  if (tab === "draft") return inv.status === "draft" && !inv.isConfirmed;
+  if (tab === "saved") return inv.status === "draft" && inv.isConfirmed;
+  return inv.status === tab;
+}
+
 export function InvoiceListPage() {
   const navigate = useNavigate();
   const { user, isLoaded } = useUser();
@@ -109,6 +129,7 @@ export function InvoiceListPage() {
     null
   );
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [sendingInvoice, setSendingInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -135,12 +156,23 @@ export function InvoiceListPage() {
   }, [user]);
 
   const filtered = invoices.filter((inv) => {
-    const matchTab = activeTab === "all" || inv.status === activeTab;
+    const matchTab = matchesTab(inv, activeTab);
     const matchSearch =
       inv.clientName.toLowerCase().includes(search.toLowerCase()) ||
       inv.invoiceNumber.toLowerCase().includes(search.toLowerCase());
     return matchTab && matchSearch;
   });
+
+  // Tab counts
+  const tabCounts: Record<FilterTab, number> = {
+    all: invoices.length,
+    draft: invoices.filter((i) => i.status === "draft" && !i.isConfirmed)
+      .length,
+    saved: invoices.filter((i) => i.status === "draft" && i.isConfirmed).length,
+    sent: invoices.filter((i) => i.status === "sent").length,
+    paid: invoices.filter((i) => i.status === "paid").length,
+    overdue: invoices.filter((i) => i.status === "overdue").length,
+  };
 
   const handleDownloadPDF = async (inv: Invoice) => {
     setOpenMenuId(null);
@@ -160,7 +192,7 @@ export function InvoiceListPage() {
           ratePerUnit: inv.ratePerUnit,
         },
         inv.invoiceNumber,
-        user?.fullName || user?.firstName || "InvoiceOS User"
+        user?.fullName || user?.firstName || "Ledger User"
       );
     } catch (err) {
       console.error("PDF download failed:", err);
@@ -208,7 +240,7 @@ export function InvoiceListPage() {
               >
                 <Zap className="w-3.5 h-3.5 text-white" fill="white" />
               </div>
-              <span className="font-semibold text-gray-900">InvoiceOS</span>
+              <span className="font-semibold text-gray-900">Ledger</span>
             </div>
           </div>
         </div>
@@ -258,13 +290,24 @@ export function InvoiceListPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setActiveTab(tab.value)}
-                className={`rounded-lg px-4 text-sm font-medium ${
+                className={`rounded-lg px-3 text-sm font-medium gap-1.5 ${
                   activeTab === tab.value
                     ? "bg-gray-100 text-gray-900 hover:bg-gray-100"
                     : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 {tab.label}
+                {tabCounts[tab.value] > 0 && (
+                  <span
+                    className={`text-xs rounded-full px-1.5 py-0 font-bold ${
+                      activeTab === tab.value
+                        ? "bg-gray-200 text-gray-700"
+                        : "bg-gray-100 text-gray-400"
+                    }`}
+                  >
+                    {tabCounts[tab.value]}
+                  </span>
+                )}
               </Button>
             ))}
           </div>
@@ -313,165 +356,168 @@ export function InvoiceListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtered.map((inv) => (
-                  <tr
-                    key={inv._id}
-                    onClick={() => navigate(`/invoices/${inv._id}`)}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                  >
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-gray-900">
-                        {inv.invoiceNumber}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <Avatar
-                          className={`w-8 h-8 flex-shrink-0 ${getAvatarColor(
-                            inv.clientName
-                          )}`}
-                        >
-                          <AvatarFallback
-                            className={`text-xs font-bold ${getAvatarColor(
+                {filtered.map((inv) => {
+                  const display = getDisplayStatus(inv);
+                  return (
+                    <tr
+                      key={inv._id}
+                      onClick={() => navigate(`/invoices/${inv._id}`)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
+                      <td className="px-6 py-4">
+                        <span className="text-sm font-semibold text-gray-900">
+                          {inv.invoiceNumber}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar
+                            className={`w-8 h-8 flex-shrink-0 ${getAvatarColor(
                               inv.clientName
                             )}`}
                           >
-                            {inv.clientName.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {inv.clientName}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            {inv.lineItems && inv.lineItems.length > 0
-                              ? inv.lineItems[0].description
-                              : inv.workDescription || "—"}
-                          </p>
+                            <AvatarFallback
+                              className={`text-xs font-bold ${getAvatarColor(
+                                inv.clientName
+                              )}`}
+                            >
+                              {inv.clientName.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {inv.clientName}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {inv.lineItems && inv.lineItems.length > 0
+                                ? inv.lineItems[0].description
+                                : inv.workDescription || "—"}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-500">
-                        {formatDate(inv.createdAt)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-500">
-                        {inv.dueDate ? formatDate(inv.dueDate) : "—"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-gray-900">
-                        {formatINR(inv.total)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge
-                        className={`capitalize rounded-full text-xs font-medium ${
-                          STATUS_STYLES[inv.status]
-                        }`}
-                      >
-                        {inv.status}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="relative">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenMenuId(
-                              openMenuId === inv._id ? null : inv._id
-                            );
-                          }}
-                          className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600"
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm text-gray-500">
+                          {formatDate(inv.createdAt)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm text-gray-500">
+                          {inv.dueDate ? formatDate(inv.dueDate) : "—"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm font-semibold text-gray-900">
+                          {formatINR(inv.total)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <Badge
+                          className={`capitalize rounded-full text-xs font-medium ${display.style}`}
                         >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-
-                        {openMenuId === inv._id && (
-                          <div
-                            ref={menuRef}
-                            className="absolute right-0 top-8 z-50 bg-white rounded-2xl border border-gray-100 py-1.5 w-44"
-                            style={{
-                              boxShadow:
-                                "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
+                          {display.label}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="relative">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(
+                                openMenuId === inv._id ? null : inv._id
+                              );
                             }}
+                            className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600"
                           >
-                            <Button
-                              variant="ghost"
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                navigate(`/invoices/${inv._id}`);
-                              }}
-                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
-                            >
-                              <Eye className="w-4 h-4 text-gray-400" />
-                              View
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() => handleDownloadPDF(inv)}
-                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
-                            >
-                              <Download className="w-4 h-4 text-gray-400" />
-                              Download PDF
-                            </Button>
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
 
-                            {inv.status === "paid" ? (
-                              <Button
-                                variant="ghost"
-                                disabled
-                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-300 cursor-not-allowed"
-                              >
-                                <Lock className="w-4 h-4" />
-                                Locked
-                              </Button>
-                            ) : (
+                          {openMenuId === inv._id && (
+                            <div
+                              ref={menuRef}
+                              className="absolute right-0 top-8 z-50 bg-white rounded-2xl border border-gray-100 py-1.5 w-44"
+                              style={{
+                                boxShadow:
+                                  "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
+                              }}
+                            >
                               <Button
                                 variant="ghost"
                                 onClick={() => {
                                   setOpenMenuId(null);
-                                  setEditingInvoice(inv);
+                                  navigate(`/invoices/${inv._id}`);
                                 }}
                                 className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
                               >
-                                <Edit2 className="w-4 h-4 text-gray-400" />
-                                Edit
+                                <Eye className="w-4 h-4 text-gray-400" />
+                                View
                               </Button>
-                            )}
+                              <Button
+                                variant="ghost"
+                                onClick={() => handleDownloadPDF(inv)}
+                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
+                              >
+                                <Download className="w-4 h-4 text-gray-400" />
+                                Download PDF
+                              </Button>
 
-                            <Button
-                              variant="ghost"
-                              disabled
-                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-300 cursor-not-allowed"
-                            >
-                              <Send className="w-4 h-4" />
-                              Send
-                            </Button>
+                              {inv.status === "paid" ? (
+                                <Button
+                                  variant="ghost"
+                                  disabled
+                                  className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-300 cursor-not-allowed"
+                                >
+                                  <Lock className="w-4 h-4" />
+                                  Locked
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    setEditingInvoice(inv);
+                                  }}
+                                  className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
+                                >
+                                  <Edit2 className="w-4 h-4 text-gray-400" />
+                                  Edit
+                                </Button>
+                              )}
 
-                            <Separator className="my-1" />
+                              <Button
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(null);
+                                  setSendingInvoice(inv);
+                                }}
+                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
+                              >
+                                <Send className="w-4 h-4 text-gray-400" />
+                                Send
+                              </Button>
 
-                            <Button
-                              variant="ghost"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(null);
-                                setShowDeleteConfirm(inv._id);
-                              }}
-                              className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-red-500 hover:bg-red-50 hover:text-red-500"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                              Delete
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                              <Button
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(null);
+                                  setShowDeleteConfirm(inv._id);
+                                }}
+                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-red-500 hover:bg-red-50 hover:text-red-500"
+                              >
+                                <Trash2 className="w-4 h-4 text-red-400" />
+                                Delete
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -483,6 +529,26 @@ export function InvoiceListPage() {
           invoice={editingInvoice}
           onSave={handleSaveEdit}
           onClose={() => setEditingInvoice(null)}
+        />
+      )}
+
+      {sendingInvoice && (
+        <SendInvoiceModal
+          invoiceId={sendingInvoice._id}
+          invoiceNumber={sendingInvoice.invoiceNumber}
+          clientName={sendingInvoice.clientName}
+          total={sendingInvoice.total}
+          onClose={() => setSendingInvoice(null)}
+          onSent={() => {
+            setInvoices((prev) =>
+              prev.map((inv) =>
+                inv._id === sendingInvoice._id
+                  ? { ...inv, status: "sent" }
+                  : inv
+              )
+            );
+            setSendingInvoice(null);
+          }}
         />
       )}
 

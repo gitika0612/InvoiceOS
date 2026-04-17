@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   FileText,
   ChevronRight,
@@ -43,7 +43,7 @@ interface InvoicePanelProps {
 }
 
 type SortOption = "newest" | "oldest" | "highest" | "lowest" | "az";
-type StatusFilter = "all" | "draft" | "saved";
+type StatusFilter = "draft" | "confirmed";
 
 function formatINR(amount: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -69,7 +69,7 @@ export function InvoicePanel({
   userName,
 }: InvoicePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [manualTab, setManualTab] = useState<StatusFilter>("all");
+  const [manualTab, setManualTab] = useState<StatusFilter>("draft");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [filterClient, setFilterClient] = useState("");
@@ -78,14 +78,9 @@ export function InvoicePanel({
   >({});
 
   const drafts = [...sessionInvoices.filter((s) => !s.isConfirmed)].reverse();
-  const saved = [...sessionInvoices.filter((s) => s.isConfirmed)].reverse();
+  const confirmed = [...sessionInvoices.filter((s) => s.isConfirmed)].reverse();
 
-  const baseList =
-    manualTab === "draft"
-      ? drafts
-      : manualTab === "saved"
-      ? saved
-      : [...sessionInvoices].reverse();
+  const baseList = manualTab === "draft" ? drafts : confirmed;
 
   const filtered = useMemo(
     () =>
@@ -101,6 +96,19 @@ export function InvoicePanel({
       }),
     [baseList, search, filterClient]
   );
+
+  useEffect(() => {
+    const currentList = manualTab === "draft" ? drafts : confirmed;
+
+    // If selected card is not present in current tab, auto select first card
+    const selectedExistsInCurrentTab = currentList.some(
+      (item) => item.messageId === selectedMessageId
+    );
+
+    if (!selectedExistsInCurrentTab) {
+      onSelect(currentList.length > 0 ? currentList[0].messageId : null);
+    }
+  }, [manualTab, drafts, confirmed, selectedMessageId, onSelect]);
 
   const sorted = useMemo(
     () =>
@@ -178,7 +186,8 @@ export function InvoicePanel({
               <p className="text-xs text-gray-400 mt-0.5">
                 {sessionInvoices.length} invoice
                 {sessionInvoices.length !== 1 ? "s" : ""} · {drafts.length}{" "}
-                draft{drafts.length !== 1 ? "s" : ""} · {saved.length} saved
+                draft{drafts.length !== 1 ? "s" : ""} · {confirmed.length}{" "}
+                confirmed
               </p>
             </div>
 
@@ -186,9 +195,12 @@ export function InvoicePanel({
             <div className="flex gap-1.5 px-4 pb-2 overflow-x-auto">
               {(
                 [
-                  { key: "all", label: "All", count: sessionInvoices.length },
                   { key: "draft", label: "Draft", count: drafts.length },
-                  { key: "saved", label: "Saved", count: saved.length },
+                  {
+                    key: "confirmed",
+                    label: "Confirmed",
+                    count: confirmed.length,
+                  },
                 ] as const
               ).map(({ key, label, count }) => (
                 <Badge
@@ -196,14 +208,14 @@ export function InvoicePanel({
                   variant="outline"
                   onClick={() => setManualTab(key)}
                   className={`
-                    cursor-pointer flex-shrink-0 gap-1 rounded-full px-2.5 py-1
-                    text-xs font-semibold transition-all select-none
-                    ${
-                      manualTab === key
-                        ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-                        : "bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200"
-                    }
-                  `}
+      cursor-pointer flex-shrink-0 gap-1 rounded-full px-2.5 py-1
+      text-xs font-semibold transition-all select-none
+      ${
+        manualTab === key
+          ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+          : "bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200"
+      }
+    `}
                 >
                   {label}
                   <span
@@ -353,9 +365,9 @@ export function InvoicePanel({
                                         )}
                                         <p className="text-sm font-semibold mt-0.5 truncate text-gray-900">
                                           {si.invoice.clientName}
-                                          {si.invoiceNumber ? (
+                                          {si.isConfirmed === true ? (
                                             <Badge className="ml-2 text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full">
-                                              Saved
+                                              Confirmed
                                             </Badge>
                                           ) : (
                                             <Badge
@@ -381,7 +393,7 @@ export function InvoicePanel({
                                         }`}
                                       />
                                       <p className="text-xs text-gray-400">
-                                        {si.isConfirmed ? "Saved" : "Pending"} ·{" "}
+                                        {si.isConfirmed ? "Confirmed" : "Draft"}
                                         {si.invoice.lineItems?.length || 0} item
                                         {(si.invoice.lineItems?.length || 0) !==
                                         1

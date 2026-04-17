@@ -112,6 +112,7 @@ export async function updateProfile(
         accountNumber: accountNumber || "",
         ifscCode: ifscCode || "",
         upiId: upiId || "",
+        isOnboarded: true,
       },
       { new: true }
     );

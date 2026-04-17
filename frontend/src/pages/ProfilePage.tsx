@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -23,40 +23,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const INDIAN_STATES = [
-  "Andhra Pradesh",
-  "Arunachal Pradesh",
-  "Assam",
-  "Bihar",
-  "Chhattisgarh",
-  "Goa",
-  "Gujarat",
-  "Haryana",
-  "Himachal Pradesh",
-  "Jharkhand",
-  "Karnataka",
-  "Kerala",
-  "Madhya Pradesh",
-  "Maharashtra",
-  "Manipur",
-  "Meghalaya",
-  "Mizoram",
-  "Nagaland",
-  "Odisha",
-  "Punjab",
-  "Rajasthan",
-  "Sikkim",
-  "Tamil Nadu",
-  "Telangana",
-  "Tripura",
-  "Uttar Pradesh",
-  "Uttarakhand",
-  "West Bengal",
-  "Delhi",
-  "Jammu & Kashmir",
-  "Ladakh",
-];
+import {
+  INDIAN_STATES,
+  profileSchema,
+  parseProfileIssues,
+  fieldClass,
+} from "@/lib/profileValidation";
 
 const emptyProfile: UserProfile = {
   businessName: "",
@@ -73,6 +45,22 @@ const emptyProfile: UserProfile = {
   upiId: "",
 };
 
+const normalizeProfile = (data: UserProfile): UserProfile => ({
+  ...data,
+  businessName: data.businessName.trim(),
+  address: data.address.trim(),
+  city: data.city.trim(),
+  state: data.state.trim(),
+  pincode: data.pincode.trim(),
+  phone: data.phone?.trim() || "",
+  gstin: data.gstin?.trim() || "",
+  pan: data.pan?.trim() || "",
+  bankName: data.bankName?.trim() || "",
+  accountNumber: data.accountNumber?.trim() || "",
+  ifscCode: data.ifscCode?.trim() || "",
+  upiId: data.upiId?.trim() || "",
+});
+
 type SaveState = "idle" | "saving" | "saved";
 
 export function ProfilePage() {
@@ -81,6 +69,7 @@ export function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile>(emptyProfile);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!user) return;
@@ -104,16 +93,64 @@ export function ProfilePage() {
       }
       setLoading(false);
     })();
-  }, [user]);
+  }, [user, getUserProfile]);
+
+  const normalizedProfile = useMemo(() => normalizeProfile(profile), [profile]);
+
+  const validationResult = useMemo(
+    () => profileSchema.safeParse(normalizedProfile),
+    [normalizedProfile]
+  );
+
+  const completionPercent = useMemo(() => {
+    const requiredFields = [
+      normalizedProfile.businessName,
+      normalizedProfile.address,
+      normalizedProfile.city,
+      normalizedProfile.state,
+      normalizedProfile.pincode,
+    ];
+    return Math.round(
+      (requiredFields.filter(Boolean).length / requiredFields.length) * 100
+    );
+  }, [normalizedProfile]);
 
   const handleChange = (field: keyof UserProfile, value: string) => {
-    setProfile((prev) => ({ ...prev, [field]: value }));
-    if (saveState === "saved") setSaveState("idle");
+    const updated = { ...profile, [field]: value };
+    setProfile(updated);
+
+    if (saveState === "saved") {
+      setSaveState("idle");
+    }
+
+    const result = profileSchema.safeParse(normalizeProfile(updated));
+
+    if (!result.success) {
+      const fieldErrors = parseProfileIssues(result.error.issues);
+
+      setErrors((prev) => ({
+        ...prev,
+        [field]: fieldErrors[field] || "",
+      }));
+    } else {
+      setErrors((prev) => ({
+        ...prev,
+        [field]: "",
+      }));
+    }
   };
 
   const handleSave = async () => {
+    // Final validation before save
+    if (!validationResult.success) {
+      setErrors(parseProfileIssues(validationResult.error.issues));
+      return;
+    }
     setSaveState("saving");
-    const result = await updateUserProfile(profile);
+    const result = await updateUserProfile({
+      ...normalizedProfile,
+      isOnboarded: true,
+    });
     if (result) {
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 3000);
@@ -121,21 +158,6 @@ export function ProfilePage() {
       setSaveState("idle");
     }
   };
-
-  const completionFields = [
-    profile.businessName,
-    profile.gstin,
-    profile.address,
-    profile.city,
-    profile.state,
-    profile.phone,
-    profile.bankName,
-    profile.accountNumber,
-    profile.ifscCode,
-  ];
-  const completionPercent = Math.round(
-    (completionFields.filter(Boolean).length / completionFields.length) * 100
-  );
 
   if (loading) {
     return (
@@ -161,39 +183,14 @@ export function ProfilePage() {
             </Button>
             <div>
               <h1 className="text-sm font-bold text-gray-900">
-                Business Profile
+                Company Profile
               </h1>
               <p className="text-xs text-gray-400">
                 Auto-fills your invoices · {completionPercent}% complete
               </p>
             </div>
           </div>
-
-          <Button
-            onClick={handleSave}
-            disabled={saveState === "saving"}
-            className={`gap-2 rounded-xl ${
-              saveState === "saved"
-                ? "bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-50"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white"
-            }`}
-          >
-            {saveState === "saving" ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : saveState === "saved" ? (
-              <CheckCircle2 className="w-4 h-4" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            {saveState === "saving"
-              ? "Saving..."
-              : saveState === "saved"
-              ? "Saved!"
-              : "Save Profile"}
-          </Button>
         </div>
-
-        {/* Progress bar */}
         <div className="h-0.5 bg-gray-100">
           <div
             className="h-full bg-indigo-500 transition-all duration-500"
@@ -225,80 +222,96 @@ export function ProfilePage() {
           </Badge>
         </div>
 
-        {/* Business Details */}
-        <Section icon={Building2} title="Business Details">
+        {/* Company Details */}
+        <Section icon={Building2} title="Company Details">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <FieldWrapper label="Business / Freelancer Name *">
+              <FieldWrapper
+                label="Company / Freelancer Name"
+                required
+                error={errors.businessName}
+              >
                 <Input
                   value={profile.businessName}
                   onChange={(e) => handleChange("businessName", e.target.value)}
-                  placeholder="e.g. Gitika Bhatia Design Studio"
-                  className="rounded-xl focus-visible:ring-indigo-400"
+                  placeholder="Enter Company Name"
+                  className={fieldClass(!!errors.businessName)}
                 />
               </FieldWrapper>
             </div>
-            <FieldWrapper label="GSTIN">
+            <FieldWrapper label="GSTIN" error={errors.gstin}>
               <Input
                 value={profile.gstin}
                 onChange={(e) =>
                   handleChange("gstin", e.target.value.toUpperCase())
                 }
-                placeholder="22AAAAA0000A1Z5"
+                placeholder="Enter GSTIN"
                 maxLength={15}
-                className="rounded-xl focus-visible:ring-indigo-400"
+                className={fieldClass(!!errors.gstin)}
               />
             </FieldWrapper>
-            <FieldWrapper label="PAN">
+            <FieldWrapper label="PAN" error={errors.pan}>
               <Input
                 value={profile.pan}
                 onChange={(e) =>
                   handleChange("pan", e.target.value.toUpperCase())
                 }
-                placeholder="AAAAA0000A"
+                placeholder="Enter PAN No."
                 maxLength={10}
-                className="rounded-xl focus-visible:ring-indigo-400"
+                className={fieldClass(!!errors.pan)}
               />
             </FieldWrapper>
-            <FieldWrapper label="Phone">
+            <FieldWrapper label="Phone" error={errors.phone}>
               <Input
                 value={profile.phone}
-                onChange={(e) => handleChange("phone", e.target.value)}
-                placeholder="+91 98765 43210"
-                className="rounded-xl focus-visible:ring-indigo-400"
+                onChange={(e) =>
+                  handleChange(
+                    "phone",
+                    e.target.value.replace(/\D/g, "").slice(0, 10)
+                  )
+                }
+                placeholder="Enter Phone No."
+                maxLength={10}
+                inputMode="numeric"
+                className={fieldClass(!!errors.phone)}
               />
             </FieldWrapper>
           </div>
         </Section>
 
-        {/* Address */}
-        <Section icon={MapPin} title="Business Address">
+        {/* Company Address */}
+        <Section icon={MapPin} title="Company Address">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <FieldWrapper label="Street Address">
+              <FieldWrapper label="Address" required error={errors.address}>
                 <Input
                   value={profile.address}
                   onChange={(e) => handleChange("address", e.target.value)}
-                  placeholder="123, Street Name, Area"
-                  className="rounded-xl focus-visible:ring-indigo-400"
+                  placeholder="Enter Address"
+                  className={fieldClass(!!errors.address)}
                 />
               </FieldWrapper>
             </div>
-            <FieldWrapper label="City">
+            <FieldWrapper label="City" required error={errors.city}>
               <Input
                 value={profile.city}
-                onChange={(e) => handleChange("city", e.target.value)}
-                placeholder="Mumbai"
-                className="rounded-xl focus-visible:ring-indigo-400"
+                onChange={(e) =>
+                  handleChange(
+                    "city",
+                    e.target.value.replace(/[^a-zA-Z\s]/g, "")
+                  )
+                }
+                placeholder="Enter City"
+                className={fieldClass(!!errors.city)}
               />
             </FieldWrapper>
-            <FieldWrapper label="State">
+            <FieldWrapper label="State" required error={errors.state}>
               <Select
                 value={profile.state}
                 onValueChange={(val) => handleChange("state", val)}
               >
-                <SelectTrigger className="rounded-xl focus:ring-indigo-400">
-                  <SelectValue placeholder="Select state" />
+                <SelectTrigger className={fieldClass(!!errors.state)}>
+                  <SelectValue placeholder="Select State" />
                 </SelectTrigger>
                 <SelectContent>
                   {INDIAN_STATES.map((s) => (
@@ -309,13 +322,19 @@ export function ProfilePage() {
                 </SelectContent>
               </Select>
             </FieldWrapper>
-            <FieldWrapper label="Pincode">
+            <FieldWrapper label="Pincode" required error={errors.pincode}>
               <Input
                 value={profile.pincode}
-                onChange={(e) => handleChange("pincode", e.target.value)}
-                placeholder="400001"
+                onChange={(e) =>
+                  handleChange(
+                    "pincode",
+                    e.target.value.replace(/\D/g, "").slice(0, 6)
+                  )
+                }
+                placeholder="Enter PinCode"
                 maxLength={6}
-                className="rounded-xl focus-visible:ring-indigo-400"
+                inputMode="numeric"
+                className={fieldClass(!!errors.pincode)}
               />
             </FieldWrapper>
           </div>
@@ -327,38 +346,59 @@ export function ProfilePage() {
             Shown on invoice for direct bank transfers
           </p>
           <div className="grid grid-cols-2 gap-4">
-            <FieldWrapper label="Bank Name">
+            <FieldWrapper label="Bank Name" error={errors.bankName}>
               <Input
                 value={profile.bankName}
-                onChange={(e) => handleChange("bankName", e.target.value)}
+                onChange={(e) =>
+                  handleChange(
+                    "bankName",
+                    e.target.value.replace(/[^a-zA-Z\s&.]/g, "")
+                  )
+                }
                 placeholder="HDFC Bank"
-                className="rounded-xl focus-visible:ring-indigo-400"
+                className={fieldClass(!!errors.bankName)}
               />
             </FieldWrapper>
-            <FieldWrapper label="Account Number">
+            <FieldWrapper label="Account Number" error={errors.accountNumber}>
               <Input
                 value={profile.accountNumber}
-                onChange={(e) => handleChange("accountNumber", e.target.value)}
-                placeholder="1234567890"
-                className="rounded-xl focus-visible:ring-indigo-400"
+                onChange={(e) =>
+                  handleChange(
+                    "accountNumber",
+                    e.target.value.replace(/\D/g, "").slice(0, 18)
+                  )
+                }
+                placeholder="Enter Account Number"
+                maxLength={18}
+                inputMode="numeric"
+                className={fieldClass(!!errors.accountNumber)}
               />
             </FieldWrapper>
-            <FieldWrapper label="IFSC Code">
+            <FieldWrapper label="IFSC Code" error={errors.ifscCode}>
               <Input
                 value={profile.ifscCode}
                 onChange={(e) =>
-                  handleChange("ifscCode", e.target.value.toUpperCase())
+                  handleChange(
+                    "ifscCode",
+                    e.target.value
+                      .toUpperCase()
+                      .replace(/[^A-Z0-9]/g, "")
+                      .slice(0, 11)
+                  )
                 }
-                placeholder="HDFC0001234"
-                className="rounded-xl focus-visible:ring-indigo-400"
+                placeholder="Enter IFSC Code"
+                maxLength={11}
+                className={fieldClass(!!errors.ifscCode)}
               />
             </FieldWrapper>
-            <FieldWrapper label="UPI ID">
+            <FieldWrapper label="UPI ID" error={errors.upiId}>
               <Input
                 value={profile.upiId}
-                onChange={(e) => handleChange("upiId", e.target.value)}
-                placeholder="yourname@upi"
-                className="rounded-xl focus-visible:ring-indigo-400"
+                onChange={(e) =>
+                  handleChange("upiId", e.target.value.replace(/\s/g, ""))
+                }
+                placeholder="Enter UPI ID"
+                className={fieldClass(!!errors.upiId)}
               />
             </FieldWrapper>
           </div>
@@ -380,11 +420,11 @@ export function ProfilePage() {
           </div>
         </div>
 
-        {/* Bottom save */}
+        {/* Save button */}
         <Button
           onClick={handleSave}
-          disabled={saveState === "saving"}
-          className="w-full rounded-2xl py-3 h-auto gap-2 bg-indigo-600 hover:bg-indigo-700"
+          disabled={saveState === "saving" || !validationResult.success}
+          className="w-full rounded-2xl py-3 h-auto gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
           style={{ boxShadow: "0 4px 12px rgba(79,70,229,0.3)" }}
         >
           {saveState === "saving" ? (
@@ -404,6 +444,8 @@ export function ProfilePage() {
     </div>
   );
 }
+
+// ── Helper components ──
 
 function Section({
   icon: Icon,
@@ -429,15 +471,23 @@ function Section({
 
 function FieldWrapper({
   label,
+  required,
+  error,
   children,
 }: {
   label: string;
+  required?: boolean;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold text-gray-500">{label}</Label>
+      <Label className="text-xs font-semibold text-gray-500">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </Label>
       {children}
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   );
 }

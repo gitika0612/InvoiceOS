@@ -7,6 +7,16 @@ import { CreateInvoicePage } from "./pages/create-invoice/CreateInvoicePage";
 import { InvoiceListPage } from "./pages/invoices/InvoiceListPage";
 import { InvoiceViewPage } from "./pages/invoices/InvoiceViewPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { OnboardingPage } from "./pages/OnboardingPage";
+
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => (
+  <>
+    <SignedIn>{children}</SignedIn>
+    <SignedOut>
+      <RedirectToSignIn />
+    </SignedOut>
+  </>
+);
 
 export default function App() {
   return (
@@ -14,69 +24,53 @@ export default function App() {
       <Route path="/" element={<Navigate to="/sign-in" replace />} />
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
+
+      <Route
+        path="/onboarding"
+        element={
+          <ProtectedRoute>
+            <OnboardingPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/dashboard"
         element={
-          <>
-            <SignedIn>
-              <DashboardPage />
-            </SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </>
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/create"
         element={
-          <>
-            <SignedIn>
-              <CreateInvoicePage />
-            </SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </>
+          <ProtectedRoute>
+            <CreateInvoicePage />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/invoices"
         element={
-          <>
-            <SignedIn>
-              <InvoiceListPage />
-            </SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </>
+          <ProtectedRoute>
+            <InvoiceListPage />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/invoices/:id"
         element={
-          <>
-            <SignedIn>
-              <InvoiceViewPage />
-            </SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </>
+          <ProtectedRoute>
+            <InvoiceViewPage />
+          </ProtectedRoute>
         }
       />
       <Route
         path="/profile"
         element={
-          <>
-            <SignedIn>
-              <ProfilePage />
-            </SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </>
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
         }
       />
     </Routes>

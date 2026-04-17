@@ -31,7 +31,7 @@ export function DownloadPDFButton({
         <InvoicePDF
           invoice={invoice}
           invoiceNumber={invoiceNumber}
-          userName={userName || user?.fullName || "InvoiceOS User"}
+          userName={userName || user?.fullName || "Ledger User"}
           profile={profile}
         />
       ).toBlob();

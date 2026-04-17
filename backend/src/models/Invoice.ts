@@ -18,6 +18,7 @@ export interface IInvoiceDocument extends Document {
   gstAmount: number;
   total: number;
   status: "draft" | "sent" | "paid" | "overdue";
+  isConfirmed: boolean;
   createdVia: "chat" | "template" | "memory";
   originalPrompt?: string;
   invoiceDate: Date;
@@ -55,21 +56,15 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
       enum: ["draft", "sent", "paid", "overdue"],
       default: "draft",
     },
+    isConfirmed: { type: Boolean, default: false },
     createdVia: {
       type: String,
       enum: ["chat", "template", "memory"],
       default: "chat",
     },
     originalPrompt: { type: String, default: "" },
-    invoiceDate: {
-      type: Date,
-      default: () => new Date(),
-    },
-    invoiceMonth: {
-      type: String,
-      default: "",
-      // e.g. "January 2026"
-    },
+    invoiceDate: { type: Date, default: () => new Date() },
+    invoiceMonth: { type: String, default: "" },
     dueDate: {
       type: Date,
       default: () => new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),

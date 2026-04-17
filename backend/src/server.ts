@@ -6,6 +6,7 @@ import webhookRoutes from "./routes/webhooks";
 import userRoutes from "./routes/users";
 import invoiceRoutes from "./routes/invoices";
 import chatRoutes from "./routes/chats";
+import clientRoutes from "./routes/clients";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -37,24 +38,22 @@ app.use("/api/webhooks", webhookRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/chats", chatRoutes);
+app.use("/api/clients", clientRoutes);
 
-// ── Health check ──
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
-    service: "InvoiceOS API",
+    service: "Ledger API",
     timestamp: new Date().toISOString(),
   });
 });
 
-// ── 404 ──
 app.use((_req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-// ── Start ──
 connectDB().then(() => {
   app.listen(PORT, () => {
-    console.log(`🚀 InvoiceOS API running on http://localhost:${PORT}`);
+    console.log(`🚀 Ledger API running on http://localhost:${PORT}`);
   });
 });

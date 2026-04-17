@@ -1,26 +1,49 @@
 import api from "@/lib/api";
 import { ParsedInvoice } from "@/components/invoice/InvoicePreviewCard";
+import { ClientAPI } from "@/lib/clientApi";
+
+export type MatchType = "exact" | "partial" | "none";
+
+export interface MatchResult {
+  type: MatchType;
+  client: ClientAPI | null;
+  score: number;
+}
 
 export interface ParseResult {
   isMultiple: boolean;
   invoice?: ParsedInvoice;
   invoices?: ParsedInvoice[];
+  matchResult?: MatchResult;
+  invoicesWithMatch?: { invoice: ParsedInvoice; matchResult: MatchResult }[];
 }
 
-export async function parseInvoiceWithAI(prompt: string): Promise<ParseResult> {
-  const response = await api.post("/invoices/parse", { prompt });
+export interface SavedDraft {
+  invoiceNumber: string;
+  isDuplicate: boolean;
+  _id: string;
+}
+
+export async function parseInvoiceWithAI(
+  prompt: string,
+  userId?: string
+): Promise<ParseResult> {
+  const response = await api.post("/invoices/parse", { prompt, userId });
   return {
     isMultiple: response.data.isMultiple,
     invoice: response.data.invoice,
     invoices: response.data.invoices,
+    matchResult: response.data.matchResult,
+    invoicesWithMatch: response.data.invoicesWithMatch,
   };
 }
 
-export async function saveInvoice(
+export async function saveDraftInvoice(
   invoice: ParsedInvoice,
   userId: string,
-  originalPrompt: string
-): Promise<{ invoiceNumber: string; isDuplicate: boolean }> {
+  originalPrompt: string,
+  clientId?: string
+): Promise<SavedDraft> {
   const response = await api.post("/invoices/save", {
     userId,
     clientName: invoice.clientName,
@@ -31,13 +54,33 @@ export async function saveInvoice(
     gstAmount: invoice.gstAmount,
     total: invoice.total,
     originalPrompt,
-    invoiceDate: invoice.invoiceDate, // ← new
-    invoiceMonth: invoice.invoiceMonth, // ← new
+    invoiceDate: invoice.invoiceDate,
+    invoiceMonth: invoice.invoiceMonth,
+    clientId: clientId || "",
   });
   return {
     invoiceNumber: response.data.invoice.invoiceNumber,
     isDuplicate: response.data.isDuplicate || false,
+    _id: response.data.invoice._id,
   };
+}
+
+export async function confirmInvoice(
+  invoiceId: string
+): Promise<{ invoiceNumber: string }> {
+  const response = await api.patch(`/invoices/${invoiceId}/confirm`);
+  return {
+    invoiceNumber: response.data.invoice.invoiceNumber,
+  };
+}
+
+export async function saveInvoice(
+  invoice: ParsedInvoice,
+  userId: string,
+  originalPrompt: string,
+  clientId?: string
+): Promise<SavedDraft> {
+  return saveDraftInvoice(invoice, userId, originalPrompt, clientId);
 }
 
 export async function updateInvoice(

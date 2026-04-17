@@ -7,22 +7,22 @@ const features = [
   {
     icon: Sparkles,
     title: "AI-powered creation",
-    desc: "Generate invoices from a single sentence",
+    desc: "Generate invoices, contracts, and proposals from a prompt",
   },
   {
     icon: Shield,
     title: "Smart validation",
-    desc: "Anomaly detection before you send",
+    desc: "Catch missing GST, dates, totals, and client info",
   },
   {
     icon: TrendingUp,
     title: "Revenue insights",
-    desc: "Ask your data anything, in plain English",
+    desc: "Track payments, approvals, and business performance",
   },
   {
     icon: CheckCircle2,
     title: "Automated follow-ups",
-    desc: "Never chase a payment manually again",
+    desc: "Send reminders and track document status",
   },
 ];
 
@@ -40,7 +40,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             <Zap className="w-5 h-5 text-white" fill="white" />
           </div>
           <span className="text-xl font-bold text-white tracking-tight">
-            InvoiceOS
+            Ledger
           </span>
         </div>
 
@@ -49,17 +49,17 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <div className="space-y-5">
             <Badge className="glass rounded-full px-4 py-2 border-0 bg-white/10 text-white/90 hover:bg-white/10 gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              AI-native invoicing platform
+              AI-native document platform
             </Badge>
 
             <h1 className="text-5xl font-bold text-white leading-[1.1] tracking-tight">
-              Smart invoicing
+              Business documents
               <br />
               <span className="text-gradient">powered by AI</span>
             </h1>
             <p className="text-lg text-white/65 max-w-md leading-relaxed">
-              Create, scan, validate, and track invoices with the power of
-              artificial intelligence.
+              Create invoices, contracts, proposals, and quotations in seconds
+              with AI.
             </p>
           </div>
 
@@ -87,8 +87,8 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             <Separator className="bg-white/10 mb-6" />
             <div className="flex items-center gap-10">
               {[
-                { value: "2 min", label: "avg invoice time" },
-                { value: "98%", label: "payment capture" },
+                { value: "2 min", label: "avg document creation time" },
+                { value: "98%", label: "faster payments" },
                 { value: "10k+", label: "businesses" },
               ].map((s) => (
                 <div key={s.label}>
@@ -108,7 +108,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             </div>
             <div>
               <p className="text-sm text-white/85 leading-relaxed">
-                "InvoiceOS cut my invoicing time from 30 minutes to under 2
+                "Ledger cut my invoicing time from 30 minutes to under 2
                 minutes. The AI just gets what I need."
               </p>
               <div className="mt-2 flex items-center gap-2">
@@ -134,7 +134,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           >
             <Zap className="w-5 h-5 text-white" fill="white" />
           </div>
-          <span className="text-xl font-bold text-gray-900">InvoiceOS</span>
+          <span className="text-xl font-bold text-gray-900">Ledger</span>
         </div>
         <div className="w-full max-w-[420px]">{children}</div>
       </div>

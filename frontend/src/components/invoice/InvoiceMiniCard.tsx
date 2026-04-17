@@ -65,16 +65,29 @@ export function InvoiceMiniCard({
             {clientName}
           </p>
           {isConfirmed && invoiceNumber ? (
-            <Badge className="text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full flex-shrink-0">
-              {invoiceNumber}
-            </Badge>
+            <>
+              <Badge className="text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full flex-shrink-0">
+                {invoiceNumber}
+              </Badge>
+              <Badge className="text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full flex-shrink-0">
+                Confirmed
+              </Badge>
+            </>
           ) : (
-            <Badge
-              variant="secondary"
-              className="text-xs font-medium px-2 py-0 rounded-full flex-shrink-0"
-            >
-              Draft
-            </Badge>
+            <>
+              <Badge
+                variant="secondary"
+                className="text-xs font-medium px-2 py-0 rounded-full flex-shrink-0"
+              >
+                {invoiceNumber}
+              </Badge>
+              <Badge
+                variant="secondary"
+                className="text-xs font-medium px-2 py-0 rounded-full flex-shrink-0"
+              >
+                Draft
+              </Badge>
+            </>
           )}
         </div>
         <p

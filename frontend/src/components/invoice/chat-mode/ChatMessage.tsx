@@ -1,6 +1,7 @@
 import { useUser } from "@clerk/clerk-react";
 import { Zap } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import ReactMarkdown from "react-markdown";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -17,6 +18,13 @@ export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
     user?.fullName?.[0]?.toUpperCase() ||
     "U";
 
+  console.log({
+    imageUrl: user?.imageUrl,
+    firstName: user?.firstName,
+    fullName: user?.fullName,
+    userInitial,
+  });
+
   return (
     <div
       className={`flex items-end gap-3 ${
@@ -26,8 +34,7 @@ export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
       {/* Avatar */}
       {isUser ? (
         <Avatar className="w-8 h-8 flex-shrink-0 border border-gray-200">
-          <AvatarImage src={user?.imageUrl} />
-          <AvatarFallback className="bg-gray-100 text-gray-600 text-xs font-bold">
+          <AvatarFallback className="bg-indigo-600 text-white text-xs font-bold">
             {userInitial}
           </AvatarFallback>
         </Avatar>
@@ -48,15 +55,29 @@ export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
       >
         <div
           className={`
-          px-4 py-3 rounded-2xl text-sm leading-relaxed
-          ${
-            isUser
-              ? "bg-indigo-600 text-white rounded-br-sm"
-              : "bg-white text-gray-800 border border-gray-100 shadow-sm rounded-bl-sm"
-          }
-        `}
+    px-4 py-3 rounded-2xl text-sm leading-relaxed
+    ${
+      isUser
+        ? "bg-indigo-600 text-white rounded-br-sm"
+        : "bg-white text-gray-800 border border-gray-100 shadow-sm rounded-bl-sm"
+    }
+  `}
         >
-          {content}
+          <div className="prose prose-sm max-w-none prose-p:my-0 prose-ul:my-2 prose-li:my-0 prose-strong:font-semibold">
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => <p>{children}</p>,
+                strong: ({ children }) => (
+                  <strong className="font-semibold">{children}</strong>
+                ),
+                ul: ({ children }) => (
+                  <ul className="list-disc pl-4 space-y-1">{children}</ul>
+                ),
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+          </div>
         </div>
         {timestamp && (
           <span className="text-xs text-gray-400 px-1">{timestamp}</span>

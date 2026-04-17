@@ -10,6 +10,7 @@ export interface UserProfile {
   lastName?: string;
   imageUrl?: string;
   plan?: "free" | "pro" | "business";
+  isOnboarded?: boolean;
   // Business profile
   businessName: string;
   gstin: string;
