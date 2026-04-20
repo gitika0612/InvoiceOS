@@ -196,3 +196,27 @@ export async function confirmInvoiceInMessage(
     res.status(500).json({ error: "Failed to confirm invoice" });
   }
 }
+
+export async function updateMessageInvoice(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const { sessionId, messageId } = req.params;
+  const { invoiceData } = req.body;
+
+  try {
+    const message = await ChatMessage.findOneAndUpdate(
+      { _id: messageId, sessionId },
+      { "invoice.data": invoiceData },
+      { new: true }
+    );
+    if (!message) {
+      res.status(404).json({ error: "Message not found" });
+      return;
+    }
+    res.status(200).json({ success: true, message });
+  } catch (err) {
+    console.error("❌ Update message invoice error:", err);
+    res.status(500).json({ error: "Failed to update message invoice" });
+  }
+}

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useUser } from "@clerk/clerk-react";
 import {
   parseInvoiceWithAI,
@@ -18,6 +18,7 @@ import {
   getSessionMessages,
   addChatMessage,
   confirmInvoiceInMessage,
+  updateMessageInvoiceData,
 } from "@/lib/chatApi";
 import { SessionInvoice } from "@/components/invoice/InvoicePanel";
 
@@ -108,10 +109,19 @@ export function useInvoiceChat() {
   >(null);
   const [pendingClientState, setPendingClientState] =
     useState<PendingClientState | null>(null);
+  const [panelTab, setPanelTab] = useState<"draft" | "confirmed" | undefined>(
+    undefined
+  );
 
   const pendingClientStateRef = useRef<PendingClientState | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const isInitialLoadRef = useRef(true); // ← track first load
+
+  const setTabTemporarily = (tab: "draft" | "confirmed") => {
+    setPanelTab(tab);
+    setTimeout(() => setPanelTab(undefined), 200);
+  };
 
   const updatePendingClientState = (val: PendingClientState | null) => {
     pendingClientStateRef.current = val;
@@ -127,11 +137,76 @@ export function useInvoiceChat() {
     loadSessions();
   }, [isLoaded, user]);
 
+  // ── Save currentSessionId to localStorage on change ──
+  useEffect(() => {
+    if (!user) return;
+    if (currentSessionId) {
+      localStorage.setItem(`ledger_session_${user.id}`, currentSessionId);
+    }
+    // NOTE: don't remove on null — only explicit actions remove it
+  }, [currentSessionId, user]);
+
+  // ── Shared: load messages for a session by ID ──
+  const loadMessagesForSession = useCallback(
+    async (userId: string, sessionId: string) => {
+      setCurrentSessionId(sessionId);
+      setLoadingMessages(true);
+      setMessages([]);
+      setSessionInvoices([]);
+      setSelectedPanelMessageId(null);
+      setPanelTab(undefined);
+      updatePendingClientState(null);
+
+      try {
+        const msgs = await getSessionMessages(userId, sessionId);
+        if (msgs.length === 0) {
+          setMessages([WELCOME]);
+        } else {
+          setMessages(msgs.map(toUIMessage));
+          const invoices: SessionInvoice[] = msgs
+            .filter((m) => m.invoice?.data)
+            .map((m) => ({
+              messageId: m._id,
+              invoice: m.invoice!.data,
+              isConfirmed: m.invoice!.isConfirmed,
+              invoiceNumber: m.invoice!.invoiceNumber,
+              invoiceId: m.invoice!.invoiceId,
+              dbMessageId: m._id,
+            }));
+          setSessionInvoices(invoices);
+          if (invoices.length > 0) {
+            setSelectedPanelMessageId(invoices[invoices.length - 1].messageId);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load messages:", err);
+        setMessages([WELCOME]);
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    []
+  );
+
   const loadSessions = async () => {
     if (!user) return;
     try {
       const data = await getUserChatSessions(user.id);
       setSessions(data);
+
+      // ── Auto-restore on initial mount only ──
+      if (isInitialLoadRef.current) {
+        isInitialLoadRef.current = false;
+        const savedSessionId = localStorage.getItem(
+          `ledger_session_${user.id}`
+        );
+        if (savedSessionId) {
+          const session = data.find((s) => s._id === savedSessionId);
+          if (session) {
+            await loadMessagesForSession(user.id, session._id);
+          }
+        }
+      }
     } catch (err) {
       console.error("Failed to load sessions:", err);
     } finally {
@@ -185,7 +260,6 @@ export function useInvoiceChat() {
     );
   };
 
-  // ── Final step: save draft to DB + show in panel ──
   const proceedWithInvoice = async (
     invoice: ParsedInvoice,
     client: ClientAPI | null,
@@ -194,7 +268,6 @@ export function useInvoiceChat() {
   ) => {
     if (!user) return;
 
-    // 1. Save to DB immediately as draft (isConfirmed: false)
     let savedDraft = null;
     try {
       savedDraft = await saveDraftInvoice(
@@ -209,13 +282,17 @@ export function useInvoiceChat() {
 
     const assistantContent = `Here's the invoice for **${invoice.clientName}**. Review it in the panel on the right.`;
 
-    // 2. Save chat message with invoice data
     const savedAssistantMsg = await addChatMessage(
       user.id,
       sessionId,
       "assistant",
       assistantContent,
-      { data: invoice, isConfirmed: false }
+      {
+        data: invoice,
+        isConfirmed: false,
+        invoiceId: savedDraft?._id || "",
+        invoiceNumber: savedDraft?.invoiceNumber || "",
+      }
     );
 
     setMessages((prev) => [
@@ -227,25 +304,25 @@ export function useInvoiceChat() {
         timestamp: getTime(),
         invoiceMessageId: savedAssistantMsg._id,
         isConfirmed: false,
+        invoiceNumber: savedDraft?.invoiceNumber,
         dbMessageId: savedAssistantMsg._id,
       },
     ]);
 
-    // 3. Add to session invoices with DB id
     const newSessionInvoice: SessionInvoice = {
       messageId: savedAssistantMsg._id,
       invoice,
       isConfirmed: false,
       dbMessageId: savedAssistantMsg._id,
-      invoiceId: savedDraft?._id, // ← DB invoice _id
-      invoiceNumber: savedDraft?.invoiceNumber, // ← invoice number from DB
+      invoiceId: savedDraft?._id,
+      invoiceNumber: savedDraft?.invoiceNumber,
     };
 
     setSessionInvoices((prev) => [...prev, newSessionInvoice]);
     setSelectedPanelMessageId(savedAssistantMsg._id);
+    setTabTemporarily("draft");
   };
 
-  // ── Single: Handle "same" / "different" reply ──
   const handleClientConfirmReply = async (reply: string, sessionId: string) => {
     const current = pendingClientStateRef.current;
     if (!current || !user || !current.invoiceData) return;
@@ -267,13 +344,12 @@ export function useInvoiceChat() {
     } else {
       updatePendingClientState({ ...current, status: "awaiting_details" });
       await addAndShowAIMessage(
-        `Got it! **${clientName}** is a new client. Could you share their email? *(Optional: phone, GSTIN, city)*\n\nOr just say **skip**.`,
+        `Got it! **${clientName}** is a new client. Please share their details.\n\n**Email** *(required)*\nCity, State, Address, Phone, GSTIN *(optional)*\n\nOr say **skip**.`,
         sessionId
       );
     }
   };
 
-  // ── Single: Handle client details reply ──
   const handleClientDetailsReply = async (reply: string, sessionId: string) => {
     const current = pendingClientStateRef.current;
     if (!current || !user || !current.invoiceData) return;
@@ -318,7 +394,6 @@ export function useInvoiceChat() {
     }
   };
 
-  // ── Multi: Handle client details reply ──
   const handleMultiClientDetailsReply = async (
     reply: string,
     sessionId: string
@@ -391,7 +466,6 @@ export function useInvoiceChat() {
     }
   };
 
-  // ── Single: Handle match result ──
   const handleMatchResult = async (
     invoice: ParsedInvoice,
     matchResult: MatchResult,
@@ -423,13 +497,12 @@ export function useInvoiceChat() {
         sessionId,
       });
       await addAndShowAIMessage(
-        `Got it! I've prepared the invoice for **${invoice.clientName}**. Could you share their email?\n\n*(Optional: phone, GSTIN, city)*\n\nOr just say **skip** to create without client details.`,
+        `Got it! I've prepared the invoice for **${invoice.clientName}**. To send it, I'll need their contact details.\n\n**Email** *(required)*\nCity, State, Address, Phone, GSTIN *(optional)*\n\nOr say **skip** to create without client details.`,
         sessionId
       );
     }
   };
 
-  // ── Multi: Handle match results for all invoices ──
   const handleMultiMatchResults = async (
     invoicesWithMatch: { invoice: ParsedInvoice; matchResult: MatchResult }[],
     sessionId: string
@@ -445,8 +518,10 @@ export function useInvoiceChat() {
     );
 
     if (noMatches.length === 0 && partialMatches.length === 0) {
-      const introMsg = `I've prepared **${invoicesWithMatch.length} invoices**! Review each one in the panel.`;
-      await addAndShowAIMessage(introMsg, sessionId);
+      await addAndShowAIMessage(
+        `I've prepared **${invoicesWithMatch.length} invoices**! Review each one in the panel.`,
+        sessionId
+      );
       for (const { invoice, matchResult } of exactMatches) {
         await proceedWithInvoice(invoice, matchResult.client, sessionId);
       }
@@ -471,7 +546,6 @@ export function useInvoiceChat() {
     const uniqueClientNames = [
       ...new Set(pendingClients.map((p) => p.clientName)),
     ];
-
     const parts: string[] = [
       `I've prepared **${invoicesWithMatch.length} invoice${
         invoicesWithMatch.length > 1 ? "s" : ""
@@ -494,7 +568,9 @@ export function useInvoiceChat() {
       parts.push(
         `${names} ${
           newClientNames.length === 1 ? "is a new client" : "are new clients"
-        }. Could you share their email${newClientNames.length > 1 ? "s" : ""}?`
+        }. Please share their email${
+          newClientNames.length > 1 ? "s" : ""
+        }.\n\n*(Optional: City, State, Address, Phone, GSTIN)*`
       );
     }
 
@@ -518,16 +594,13 @@ export function useInvoiceChat() {
       pendingClients,
       sessionId,
     });
-
     await addAndShowAIMessage(parts.join(" "), sessionId);
 
-    // Create exact match invoices immediately
     for (const { invoice, matchResult } of exactMatches) {
       await proceedWithInvoice(invoice, matchResult.client, sessionId);
     }
   };
 
-  // ── Main send handler ──
   const handleSend = async (prompt: string) => {
     if (!user) return;
 
@@ -552,23 +625,19 @@ export function useInvoiceChat() {
         )
       );
 
-      // ── Route based on pending state ──
       if (pendingClientStateRef.current?.status === "awaiting_confirm") {
         await handleClientConfirmReply(prompt, sessionId);
         return;
       }
-
       if (pendingClientStateRef.current?.status === "awaiting_details") {
         await handleClientDetailsReply(prompt, sessionId);
         return;
       }
-
       if (pendingClientStateRef.current?.status === "awaiting_multi_details") {
         await handleMultiClientDetailsReply(prompt, sessionId);
         return;
       }
 
-      // ── Normal invoice parse flow ──
       const result = await parseInvoiceWithAI(prompt, user.id);
 
       if (
@@ -618,14 +687,12 @@ export function useInvoiceChat() {
 
     try {
       const invoiceId = si.invoiceId;
-
       if (!invoiceId) {
         console.error("No invoiceId found for message:", messageId);
         return;
       }
 
       const confirmed = await confirmInvoice(invoiceId);
-
       await confirmInvoiceInMessage(
         currentSessionId,
         messageId,
@@ -646,6 +713,7 @@ export function useInvoiceChat() {
       );
 
       setSelectedPanelMessageId(messageId);
+      setTabTemporarily("confirmed");
 
       setMessages((prev) =>
         prev.map((m) =>
@@ -684,21 +752,34 @@ export function useInvoiceChat() {
     }
   };
 
-  // ── Discard invoice from panel → delete from DB ──
+  const handleEditFromPanel = async (
+    messageId: string,
+    updated: ParsedInvoice
+  ) => {
+    setSessionInvoices((prev) =>
+      prev.map((s) =>
+        s.messageId === messageId ? { ...s, invoice: updated } : s
+      )
+    );
+
+    if (currentSessionId) {
+      try {
+        await updateMessageInvoiceData(currentSessionId, messageId, updated);
+      } catch (err) {
+        console.error("Failed to persist edit to chat message:", err);
+      }
+    }
+  };
+
   const handleDiscardFromPanel = async (messageId: string) => {
     const si = sessionInvoices.find((s) => s.messageId === messageId);
-
-    // Delete from DB if we have the invoice id
     if (si?.invoiceId) {
       try {
         await deleteInvoice(si.invoiceId);
-        console.log(`✅ Draft deleted from DB: ${si.invoiceId}`);
       } catch (err) {
         console.error("Failed to delete draft from DB:", err);
       }
     }
-
-    // Remove from UI regardless
     setSessionInvoices((prev) => prev.filter((s) => s.messageId !== messageId));
     setMessages((prev) =>
       prev.map((m) =>
@@ -709,7 +790,6 @@ export function useInvoiceChat() {
     );
   };
 
-  // ── New chat ──
   const handleNewChat = async () => {
     if (!user) return;
     try {
@@ -719,13 +799,14 @@ export function useInvoiceChat() {
       setMessages([WELCOME]);
       setSessionInvoices([]);
       setSelectedPanelMessageId(null);
+      setPanelTab(undefined);
       updatePendingClientState(null);
+      localStorage.removeItem(`ledger_session_${user.id}`);
     } catch (err) {
       console.error("Failed to create session:", err);
     }
   };
 
-  // ── Delete session ──
   const handleDeleteSession = async (
     e: React.MouseEvent,
     sessionId: string
@@ -740,48 +821,19 @@ export function useInvoiceChat() {
         setMessages([WELCOME]);
         setSessionInvoices([]);
         setSelectedPanelMessageId(null);
+        setPanelTab(undefined);
         updatePendingClientState(null);
+        localStorage.removeItem(`ledger_session_${user.id}`);
       }
     } catch (err) {
       console.error("Failed to delete session:", err);
     }
   };
 
-  // ── Load session ──
+  // ── Load session (manual click) ──
   const handleLoadSession = async (session: ChatSessionAPI) => {
     if (!user) return;
-    setCurrentSessionId(session._id);
-    setLoadingMessages(true);
-    setMessages([]);
-    setSessionInvoices([]);
-    setSelectedPanelMessageId(null);
-    updatePendingClientState(null);
-
-    try {
-      const msgs = await getSessionMessages(user.id, session._id);
-      if (msgs.length === 0) {
-        setMessages([WELCOME]);
-      } else {
-        setMessages(msgs.map(toUIMessage));
-        const invoices: SessionInvoice[] = msgs
-          .filter((m) => m.invoice?.data)
-          .map((m) => ({
-            messageId: m._id,
-            invoice: m.invoice!.data,
-            isConfirmed: m.invoice!.isConfirmed,
-            invoiceNumber: m.invoice!.invoiceNumber,
-            invoiceId: m.invoice!.invoiceId,
-            dbMessageId: m._id,
-          }));
-        setSessionInvoices(invoices);
-        setSelectedPanelMessageId(null);
-      }
-    } catch (err) {
-      console.error("Failed to load messages:", err);
-      setMessages([WELCOME]);
-    } finally {
-      setLoadingMessages(false);
-    }
+    await loadMessagesForSession(user.id, session._id);
   };
 
   const scrollToMessage = (messageId: string) => {
@@ -800,6 +852,7 @@ export function useInvoiceChat() {
     sessionInvoices,
     selectedPanelMessageId,
     pendingClientState,
+    panelTab,
     bottomRef,
     messageRefs,
     handleSend,
@@ -808,6 +861,7 @@ export function useInvoiceChat() {
     handleLoadSession,
     handleConfirmFromPanel,
     handleDiscardFromPanel,
+    handleEditFromPanel,
     setSelectedPanelMessageId,
     setSessionInvoices,
     scrollToMessage,

@@ -52,7 +52,10 @@ export function ChatSidebar({
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-3 py-4 border-b border-gray-100">
         {!collapsed && (
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => navigate("/dashboard")}
+          >
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ background: "#4F46E5" }}

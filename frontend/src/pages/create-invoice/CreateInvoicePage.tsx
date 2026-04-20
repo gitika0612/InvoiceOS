@@ -8,7 +8,6 @@ import { useInvoiceChat } from "@/hooks/useInvoiceChat";
 
 export function CreateInvoicePage() {
   const {
-    // State
     user,
     isLoading,
     loadingSessions,
@@ -19,24 +18,22 @@ export function CreateInvoicePage() {
     sessionInvoices,
     selectedPanelMessageId,
     pendingClientState,
-    // Refs
+    panelTab,
     bottomRef,
     messageRefs,
-    // Handlers
     handleSend,
     handleNewChat,
     handleDeleteSession,
     handleLoadSession,
     handleConfirmFromPanel,
     handleDiscardFromPanel,
+    handleEditFromPanel, // ← add
     setSelectedPanelMessageId,
-    setSessionInvoices,
     scrollToMessage,
   } = useInvoiceChat();
 
   return (
     <div className="h-screen bg-[#F9FAFB] flex overflow-hidden">
-      {/* ── Left Sidebar ── */}
       <ChatSidebar
         sessions={sessions}
         currentSessionId={currentSessionId}
@@ -46,9 +43,7 @@ export function CreateInvoicePage() {
         onDeleteSession={handleDeleteSession}
       />
 
-      {/* ── Main chat area ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-between flex-shrink-0">
           <div>
             <h1 className="text-sm font-semibold text-gray-900">
@@ -64,7 +59,6 @@ export function CreateInvoicePage() {
           </div>
         </header>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
           {loadingMessages ? (
             <div className="flex items-center justify-center h-full">
@@ -83,8 +77,6 @@ export function CreateInvoicePage() {
                   content={msg.content}
                   timestamp={msg.timestamp}
                 />
-
-                {/* Mini card */}
                 {msg.invoiceMessageId &&
                   (() => {
                     const si = sessionInvoices.find(
@@ -120,19 +112,13 @@ export function CreateInvoicePage() {
         />
       </div>
 
-      {/* ── Right Invoice Panel ── */}
       <InvoicePanel
         sessionInvoices={sessionInvoices}
         selectedMessageId={selectedPanelMessageId}
+        activeTab={panelTab}
         onConfirm={handleConfirmFromPanel}
         onDiscard={handleDiscardFromPanel}
-        onEdit={(messageId, updated) => {
-          setSessionInvoices((prev) =>
-            prev.map((s) =>
-              s.messageId === messageId ? { ...s, invoice: updated } : s
-            )
-          );
-        }}
+        onEdit={handleEditFromPanel} // ← use new handler
         onSelect={(messageId) => {
           setSelectedPanelMessageId(messageId);
           if (messageId) scrollToMessage(messageId);

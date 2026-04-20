@@ -56,7 +56,7 @@ export function ChatInput({
 
       {/* Input row */}
       <div className="flex items-end gap-3">
-        <div className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all">
+        <div className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 transition-all">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -64,7 +64,7 @@ export function ChatInput({
             placeholder='Try: "Invoice Priya for 5 days of Next.js at ₹10k/day with 18% GST"'
             rows={1}
             disabled={isLoading}
-            className="w-full bg-transparent text-sm text-gray-900 placeholder:text-gray-400 resize-none border-0 focus-visible:ring-0 p-0 leading-relaxed shadow-none"
+            className="w-full bg-transparent text-sm text-gray-900 placeholder:text-gray-400 resize-none border-0 focus:border-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 p-1 leading-relaxed shadow-none"
             style={{ maxHeight: "120px" }}
           />
         </div>

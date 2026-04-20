@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   FileText,
   ChevronRight,
@@ -35,6 +35,7 @@ export interface SessionInvoice {
 interface InvoicePanelProps {
   sessionInvoices: SessionInvoice[];
   selectedMessageId: string | null;
+  activeTab?: "draft" | "confirmed"; // ← new prop
   onConfirm: (messageId: string) => void;
   onDiscard: (messageId: string) => void;
   onEdit: (messageId: string, updated: ParsedInvoice) => void;
@@ -55,13 +56,16 @@ function formatINR(amount: number) {
 
 function getGroupKey(si: SessionInvoice): string {
   if (si.invoice.invoiceMonth) return si.invoice.invoiceMonth;
-  const d = new Date();
-  return d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  return new Date().toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 export function InvoicePanel({
   sessionInvoices,
   selectedMessageId,
+  activeTab,
   onConfirm,
   onDiscard,
   onEdit,
@@ -69,7 +73,9 @@ export function InvoicePanel({
   userName,
 }: InvoicePanelProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [manualTab, setManualTab] = useState<StatusFilter>("draft");
+  const [userSelectedTab, setUserSelectedTab] = useState<StatusFilter | null>(
+    null
+  );
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [filterClient, setFilterClient] = useState("");
@@ -79,6 +85,13 @@ export function InvoicePanel({
 
   const drafts = [...sessionInvoices.filter((s) => !s.isConfirmed)].reverse();
   const confirmed = [...sessionInvoices.filter((s) => s.isConfirmed)].reverse();
+
+  // ── Tab priority: activeTab (from parent) > userSelectedTab > defaultTab ──
+  const latestInvoice = sessionInvoices[sessionInvoices.length - 1];
+  const defaultTab: StatusFilter = latestInvoice?.isConfirmed
+    ? "confirmed"
+    : "draft";
+  const manualTab: StatusFilter = activeTab ?? userSelectedTab ?? defaultTab;
 
   const baseList = manualTab === "draft" ? drafts : confirmed;
 
@@ -97,23 +110,16 @@ export function InvoicePanel({
     [baseList, search, filterClient]
   );
 
-  useEffect(() => {
-    const currentList = manualTab === "draft" ? drafts : confirmed;
-
-    // If selected card is not present in current tab, auto select first card
-    const selectedExistsInCurrentTab = currentList.some(
-      (item) => item.messageId === selectedMessageId
-    );
-
-    if (!selectedExistsInCurrentTab) {
-      onSelect(currentList.length > 0 ? currentList[0].messageId : null);
-    }
-  }, [manualTab, drafts, confirmed, selectedMessageId, onSelect]);
-
   const sorted = useMemo(
     () =>
       [...filtered].sort((a, b) => {
         switch (sortBy) {
+          case "newest":
+            // MongoDB ObjectId contains timestamp in first 4 bytes
+            // Compare dbMessageId lexicographically (later IDs are lexicographically greater)
+            return b.dbMessageId.localeCompare(a.dbMessageId);
+          case "oldest":
+            return a.dbMessageId.localeCompare(b.dbMessageId);
           case "highest":
             return b.invoice.total - a.invoice.total;
           case "lowest":
@@ -138,15 +144,12 @@ export function InvoicePanel({
   }, [sorted]);
 
   const hasFilters = search || filterClient;
-
   const clearFilters = () => {
     setSearch("");
     setFilterClient("");
   };
-
-  const toggleGroup = (key: string) => {
+  const toggleGroup = (key: string) =>
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
 
   if (sessionInvoices.length === 0) return null;
 
@@ -158,7 +161,6 @@ export function InvoicePanel({
       ${collapsed ? "w-10" : "w-[450px]"}
     `}
     >
-      {/* Collapse */}
       <div className="absolute top-3 right-2 z-20">
         <Button
           variant="ghost"
@@ -176,9 +178,7 @@ export function InvoicePanel({
 
       {!collapsed && (
         <>
-          {/* ── Sticky header ── */}
           <div className="flex-shrink-0 bg-white border-b border-gray-100">
-            {/* Title */}
             <div className="px-4 pt-3 pb-2 pr-10">
               <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">
                 Session Invoices
@@ -191,7 +191,6 @@ export function InvoicePanel({
               </p>
             </div>
 
-            {/* Status chips */}
             <div className="flex gap-1.5 px-4 pb-2 overflow-x-auto">
               {(
                 [
@@ -206,22 +205,31 @@ export function InvoicePanel({
                 <Badge
                   key={key}
                   variant="outline"
-                  onClick={() => setManualTab(key)}
+                  onClick={() => {
+                    setUserSelectedTab(key);
+                    const list = key === "draft" ? drafts : confirmed;
+                    onSelect(list.length > 0 ? list[0].messageId : null);
+                  }}
                   className={`
-      cursor-pointer flex-shrink-0 gap-1 rounded-full px-2.5 py-1
-      text-xs font-semibold transition-all select-none
-      ${
-        manualTab === key
-          ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-          : "bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200"
-      }
-    `}
+                  cursor-pointer flex-shrink-0 gap-1.5 rounded-full px-2.5 py-1
+                  text-xs font-semibold transition-all select-none
+                  ${
+                    manualTab === key
+                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                      : "bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200"
+                  }
+                `}
                 >
                   {label}
                   <span
-                    className={`font-bold ${
-                      manualTab === key ? "text-indigo-600" : "text-gray-400"
-                    }`}
+                    className={`
+                    flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[10px] font-bold
+                    ${
+                      manualTab === key
+                        ? "bg-indigo-100 text-indigo-700"
+                        : "bg-white text-gray-500"
+                    }
+                  `}
                   >
                     {count}
                   </span>
@@ -229,9 +237,7 @@ export function InvoicePanel({
               ))}
             </div>
 
-            {/* Search + Sort */}
             <div className="px-3 pb-2 flex gap-1.5">
-              {/* Search */}
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
                 <Input
@@ -251,8 +257,6 @@ export function InvoicePanel({
                   </Button>
                 )}
               </div>
-
-              {/* Sort */}
               <Select
                 value={sortBy}
                 onValueChange={(val) => setSortBy(val as SortOption)}
@@ -272,7 +276,6 @@ export function InvoicePanel({
             </div>
           </div>
 
-          {/* ── Invoice list ── */}
           <ScrollArea className="flex-1">
             <div className="py-2 bg-white">
               {sorted.length === 0 ? (
@@ -284,7 +287,9 @@ export function InvoicePanel({
                     No invoices found
                   </p>
                   <p className="text-xs text-gray-300 mt-1">
-                    Use search or filters to find invoices
+                    {hasFilters
+                      ? "Use search or filters to find invoices"
+                      : `No ${manualTab} invoices yet`}
                   </p>
                   {hasFilters && (
                     <Button
@@ -301,7 +306,6 @@ export function InvoicePanel({
                   const isGroupCollapsed = collapsedGroups[group];
                   return (
                     <div key={group} className="mb-1">
-                      {/* Group header */}
                       {Object.keys(grouped).length > 1 && (
                         <Button
                           variant="ghost"
@@ -328,31 +332,27 @@ export function InvoicePanel({
                         </Button>
                       )}
 
-                      {/* Invoice cards */}
                       {!isGroupCollapsed &&
                         items.map((si) => {
                           const isSelected = selectedMessageId === si.messageId;
                           return (
                             <div key={si.messageId} className="px-3 mb-1.5">
                               <div className="rounded-xl border border-gray-200 bg-white hover:shadow-[0_6px_20px_rgba(0,0,0,0.05)] overflow-hidden transition-all duration-200">
-                                {/* Card header — click to toggle */}
                                 <button
                                   onClick={() =>
                                     onSelect(isSelected ? null : si.messageId)
                                   }
-                                  className={`
-                                  w-full text-left px-4 py-3 flex items-start gap-3 transition-colors
+                                  className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors
                                   ${
                                     isSelected
                                       ? "bg-[#FAFAFA]"
                                       : "bg-white hover:bg-gray-50"
-                                  }
-                                `}
+                                  }`}
                                 >
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-start justify-between gap-2">
                                       <div className="min-w-0">
-                                        {si.invoiceNumber && (
+                                        <div className="flex">
                                           <p
                                             className={`text-xs font-bold tracking-wide ${
                                               isSelected
@@ -362,10 +362,7 @@ export function InvoicePanel({
                                           >
                                             {si.invoiceNumber}
                                           </p>
-                                        )}
-                                        <p className="text-sm font-semibold mt-0.5 truncate text-gray-900">
-                                          {si.invoice.clientName}
-                                          {si.isConfirmed === true ? (
+                                          {si.isConfirmed ? (
                                             <Badge className="ml-2 text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full">
                                               Confirmed
                                             </Badge>
@@ -377,13 +374,15 @@ export function InvoicePanel({
                                               Draft
                                             </Badge>
                                           )}
+                                        </div>
+                                        <p className="text-sm font-semibold mt-0.5 truncate text-gray-900">
+                                          {si.invoice.clientName}
                                         </p>
                                       </div>
                                       <p className="text-sm font-semibold text-gray-900 flex-shrink-0">
                                         {formatINR(si.invoice.total)}
                                       </p>
                                     </div>
-
                                     <div className="flex items-center gap-2 mt-1.5">
                                       <div
                                         className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -393,8 +392,9 @@ export function InvoicePanel({
                                         }`}
                                       />
                                       <p className="text-xs text-gray-400">
-                                        {si.isConfirmed ? "Confirmed" : "Draft"}
-                                        {si.invoice.lineItems?.length || 0} item
+                                        {si.isConfirmed ? "Confirmed" : "Draft"}{" "}
+                                        · {si.invoice.lineItems?.length || 0}{" "}
+                                        item
                                         {(si.invoice.lineItems?.length || 0) !==
                                         1
                                           ? "s"
@@ -403,7 +403,6 @@ export function InvoicePanel({
                                       </p>
                                     </div>
                                   </div>
-
                                   <div className="flex-shrink-0 mt-1">
                                     {isSelected ? (
                                       <ChevronUp className="w-3.5 h-3.5 text-indigo-400" />
@@ -413,13 +412,17 @@ export function InvoicePanel({
                                   </div>
                                 </button>
 
-                                {/* Expanded preview */}
                                 {isSelected && (
                                   <div className="border-t border-gray-100">
-                                    <div className="p-3">
+                                    {/* ── Scrollable invoice card — fills to bottom ── */}
+                                    <div
+                                      className="p-3 overflow-y-auto"
+                                      style={{ height: "calc(100vh - 234px)" }}
+                                    >
                                       <InvoicePreviewCard
                                         invoice={si.invoice}
                                         isConfirmed={si.isConfirmed}
+                                        invoiceId={si.invoiceId}
                                         invoiceNumber={si.invoiceNumber}
                                         userName={userName}
                                         onConfirm={() =>

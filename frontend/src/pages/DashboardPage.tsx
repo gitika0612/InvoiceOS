@@ -17,7 +17,6 @@ import {
   Clock,
   AlertCircle,
   CheckCircle2,
-  User,
   X,
   AlertTriangle,
 } from "lucide-react";
@@ -44,7 +43,6 @@ const NAV_ITEMS = [
   },
   { icon: FileText, label: "All Invoices", path: "/invoices", active: true },
   { icon: Plus, label: "Create Invoice", path: "/create", active: true },
-  { icon: User, label: "Profile", path: "/profile", active: true },
   {
     icon: Upload,
     label: "Scan Invoice",
@@ -185,7 +183,10 @@ export function DashboardPage() {
       `}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-100">
+        <div
+          className="flex items-center gap-3 px-4 py-5 border-b border-gray-100 cursor-pointer"
+          onClick={() => navigate("/dashboard")}
+        >
           <div
             className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ background: "#4F46E5" }}

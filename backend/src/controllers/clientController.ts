@@ -59,7 +59,6 @@ export async function upsertClient(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    // Upsert — find by userId + email, update or create
     const client = await Client.findOneAndUpdate(
       { userId, email: email.toLowerCase().trim() },
       {
@@ -141,36 +140,87 @@ export async function parseClientDetails(
   }
 
   try {
-    // Simple regex-based extraction — no AI needed for structured text
-    const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
+    // ── Step 1: Extract structured fields ──
+    const emailMatch = text.match(/[\w.+-]+@[\w.-]+\.\w+/);
     const phoneMatch = text.match(/[6-9]\d{9}/);
     const gstinMatch = text.match(
-      /[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/
+      /[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/i
     );
+    const pincodeMatch = text.match(/(?<!\d)[1-9][0-9]{5}(?!\d)/);
 
-    // Extract city — look for "City - X" or "City: X" pattern
-    const cityMatch = text.match(/[Cc]ity[\s]*[-:]\s*([A-Za-z\s]+?)(?:,|$|\n)/);
+    // ── Step 2: Try labeled format first ──
+    // e.g. "City - Greater Noida", "State: Haryana", "Address - E-24, Sector 85"
+    let labeledCity = text
+      .match(/[Cc]ity[\s]*[-:]\s*([A-Za-z\s]+?)(?:,|$|\n)/)?.[1]
+      ?.trim();
+    let labeledState = text
+      .match(/[Ss]tate[\s]*[-:]\s*([A-Za-z\s]+?)(?:,|$|\n)/)?.[1]
+      ?.trim();
+    let labeledAddress = text
+      .match(/[Aa]ddress[\s]*[-:]\s*(.+?)(?:,|$|\n)/)?.[1]
+      ?.trim();
 
-    // Extract state
-    const stateMatch = text.match(
-      /[Ss]tate[\s]*[-:]\s*([A-Za-z\s]+?)(?:,|$|\n)/
-    );
+    // ── Step 3: Plain text fallback ──
+    // Remove email, phone, gstin, pincode from text → remaining is address parts
+    let city = labeledCity;
+    let state = labeledState;
+    let address = labeledAddress;
 
-    // Extract address
-    const addressMatch = text.match(/[Aa]ddress[\s]*[-:]\s*(.+?)(?:,|$|\n)/);
+    if (!city || !state) {
+      const stripped = text
+        .replace(/[\w.+-]+@[\w.-]+\.\w+/, "") // remove email
+        .replace(/[6-9]\d{9}/, "") // remove phone
+        .replace(/[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/i, "") // remove gstin
+        .replace(/\b[1-9][0-9]{5}\b/, "") // remove pincode
+        .replace(/[Cc]ity[\s]*[-:]\s*/g, "") // remove labels
+        .replace(/[Ss]tate[\s]*[-:]\s*/g, "")
+        .replace(/[Aa]ddress[\s]*[-:]\s*/g, "")
+        .replace(/,\s*,/g, ",") // clean double commas
+        .replace(/^\s*,|,\s*$/g, "") // trim leading/trailing commas
+        .trim();
+
+      // Split into parts by comma
+      const parts = stripped
+        .split(",")
+        .map((p: string) => p.trim())
+        .filter((p: string) => p.length > 1); // filter single chars
+
+      console.log("📍 Address parts:", parts);
+
+      if (parts.length >= 3) {
+        // e.g. ["E-24", "Sector85", "Greater Faridabad", "Haryana"]
+        // address = first parts, city = second to last, state = last
+        address = address || parts.slice(0, parts.length - 2).join(", ");
+        city = city || parts[parts.length - 2];
+        state = state || parts[parts.length - 1];
+      } else if (parts.length === 2) {
+        // e.g. ["Greater Faridabad", "Haryana"]
+        city = city || parts[0];
+        state = state || parts[1];
+      } else if (parts.length === 1) {
+        // Only one part — could be city
+        city = city || parts[0];
+      }
+    }
+
+    // ── Step 4: Clean state — remove pincode if it got mixed in ──
+    if (state) {
+      state = state.replace(/\d+/g, "").replace(/\s+/g, " ").trim();
+    }
 
     const parsed = {
       email: emailMatch?.[0] || undefined,
       phone: phoneMatch?.[0] || undefined,
-      gstin: gstinMatch?.[0] || undefined,
-      city: cityMatch?.[1]?.trim() || undefined,
-      state: stateMatch?.[1]?.trim() || undefined,
-      address: addressMatch?.[1]?.trim() || undefined,
+      gstin: gstinMatch?.[0]?.toUpperCase() || undefined,
+      pincode: pincodeMatch?.[0] || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      address: address || undefined,
     };
 
     console.log("📧 Parsed client details:", parsed);
 
-    // If we got an email, upsert the client
+    // ── Step 5: Save if email present ──
     if (parsed.email) {
       const client = await Client.findOneAndUpdate(
         { userId, email: parsed.email.toLowerCase().trim() },
@@ -181,13 +231,14 @@ export async function parseClientDetails(
           address: parsed.address || "",
           city: parsed.city || "",
           state: parsed.state || "",
+          pincode: parsed.pincode || "",
           gstin: parsed.gstin || "",
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
       console.log(
-        `✅ Client saved from chat: ${client.name} (${client.email})`
+        `✅ Client saved: ${client.name} | city: ${client.city} | state: ${client.state} | address: ${client.address}`
       );
       res.status(200).json({
         success: true,
@@ -196,7 +247,7 @@ export async function parseClientDetails(
         saved: true,
       });
     } else {
-      console.log(`⚠️ No email found in text, client not saved`);
+      console.log(`⚠️ No email found — client not saved`);
       res.status(200).json({
         success: true,
         parsed,

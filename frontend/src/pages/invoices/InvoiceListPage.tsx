@@ -66,14 +66,14 @@ function getDisplayStatus(inv: Invoice): {
     return { label: "Overdue", style: "bg-red-50 text-red-500" };
   // status === "draft"
   if (inv.isConfirmed)
-    return { label: "Saved", style: "bg-indigo-50 text-indigo-600" };
+    return { label: "Confirmed", style: "text-emerald-600 bg-emerald-50" };
   return { label: "Draft", style: "bg-gray-100 text-gray-500" };
 }
 
 const TABS: { label: string; value: FilterTab }[] = [
   { label: "All", value: "all" },
   { label: "Draft", value: "draft" },
-  { label: "Saved", value: "saved" },
+  { label: "Confirmed", value: "saved" },
   { label: "Sent", value: "sent" },
   { label: "Paid", value: "paid" },
   { label: "Overdue", value: "overdue" },
@@ -233,7 +233,10 @@ export function InvoiceListPage() {
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-2 cursor-pointer"
+              onClick={() => navigate("/dashboard")}
+            >
               <div
                 className="w-7 h-7 rounded-lg flex items-center justify-center"
                 style={{ background: "#4F46E5" }}

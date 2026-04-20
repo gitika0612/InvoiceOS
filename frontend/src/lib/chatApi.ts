@@ -92,3 +92,13 @@ export async function confirmInvoiceInMessage(
     invoiceNumber,
   });
 }
+
+export async function updateMessageInvoiceData(
+  sessionId: string,
+  messageId: string,
+  invoiceData: ParsedInvoice
+): Promise<void> {
+  await api.patch(`/chats/${sessionId}/messages/${messageId}/invoice`, {
+    invoiceData,
+  });
+}

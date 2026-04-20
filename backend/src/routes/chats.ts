@@ -6,6 +6,7 @@ import {
   getSessionMessages,
   addMessage,
   confirmInvoiceInMessage,
+  updateMessageInvoice,
 } from "../controllers/chatController";
 
 const router = Router();
@@ -24,5 +25,6 @@ router.patch(
   "/:sessionId/messages/:messageId/confirm",
   confirmInvoiceInMessage
 );
+router.patch("/:sessionId/messages/:messageId/invoice", updateMessageInvoice);
 
 export default router;
