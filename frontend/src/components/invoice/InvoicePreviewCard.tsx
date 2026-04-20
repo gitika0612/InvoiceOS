@@ -19,9 +19,9 @@ import { updateInvoice } from "@/lib/mockInvoiceParser";
 
 export interface LineItem {
   description: string;
-  quantity: number | "";
+  quantity: number;
   unit: string;
-  rate: number | "";
+  rate: number;
   amount: number;
 }
 
@@ -178,18 +178,11 @@ export function InvoicePreviewCard({
       if (!String(item.description ?? "").trim()) {
         itemErrs.description = "Description required";
       }
-      if (
-        item.quantity === "" ||
-        item.quantity === undefined ||
-        Number(item.quantity) <= 0
-      ) {
+      if (item.quantity <= 0) {
         itemErrs.quantity = "Must be > 0";
       }
-      if (
-        item.rate === "" ||
-        item.rate === undefined ||
-        Number(item.rate) <= 0
-      ) {
+
+      if (item.rate <= 0) {
         itemErrs.rate = "Must be > 0";
       }
       return itemErrs;
@@ -501,7 +494,7 @@ export function InvoicePreviewCard({
                             handleLineItemChange(
                               index,
                               "quantity",
-                              e.target.value
+                              e.target.value === "" ? 0 : Number(e.target.value)
                             )
                           }
                           onBlur={() => markTouched(`item_${index}_quantity`)}
@@ -521,7 +514,11 @@ export function InvoicePreviewCard({
                           type="number"
                           value={item.rate === 0 ? "" : item.rate}
                           onChange={(e) =>
-                            handleLineItemChange(index, "rate", e.target.value)
+                            handleLineItemChange(
+                              index,
+                              "rate",
+                              e.target.value === "" ? 0 : Number(e.target.value)
+                            )
                           }
                           onBlur={() => markTouched(`item_${index}_rate`)}
                           className={`rounded-lg text-sm bg-white focus-visible:ring-indigo-400 h-8 ${
