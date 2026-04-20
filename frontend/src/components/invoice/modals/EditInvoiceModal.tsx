@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { X, Lock, Save, Loader2, Plus, Trash2 } from "lucide-react";
-import { LineItem } from "./InvoicePreviewCard";
+import { LineItem } from "../InvoicePreviewCard";
 import {
   Dialog,
   DialogContent,

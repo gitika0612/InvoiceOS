@@ -21,14 +21,14 @@ import {
   getUserInvoices,
   updateInvoice,
 } from "@/lib/mockInvoiceParser";
-import { DeleteInvoiceModal } from "@/components/invoice/DeleteInvoiceModal";
-import { EditInvoiceModal } from "@/components/invoice/EditInvoiceModal";
+import { DeleteInvoiceModal } from "@/components/invoice/modals/DeleteInvoiceModal";
+import { EditInvoiceModal } from "@/components/invoice/modals/EditInvoiceModal";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { SendInvoiceModal } from "@/components/invoice/SendInvoiceModel";
+import { SendInvoiceModal } from "@/components/invoice/modals/SendInvoiceModel";
 
 type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 type FilterTab = "all" | "draft" | "saved" | "sent" | "paid" | "overdue";

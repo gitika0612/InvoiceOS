@@ -5,7 +5,9 @@ import {
   saveDraftInvoice,
   confirmInvoice,
   deleteInvoice,
+  updateInvoice,
   MatchResult,
+  fetchInvoiceById,
 } from "@/lib/mockInvoiceParser";
 import { parseClientDetailsFromText, ClientAPI } from "@/lib/clientApi";
 import { ParsedInvoice } from "@/components/invoice/InvoicePreviewCard";
@@ -36,7 +38,8 @@ export interface UIMessage {
 type PendingStatus =
   | "awaiting_confirm"
   | "awaiting_details"
-  | "awaiting_multi_details";
+  | "awaiting_multi_details"
+  | "awaiting_ambiguity_resolution";
 
 interface PendingInvoiceClient {
   clientName: string;
@@ -52,6 +55,11 @@ interface PendingClientState {
   invoiceData?: ParsedInvoice;
   pendingClients?: PendingInvoiceClient[];
   sessionId: string;
+  ambiguityAction?: "edit" | "copy";
+  ambiguityRef?: string;
+  ambiguityEditedInvoice?: ParsedInvoice;
+  ambiguityCopyTargetClient?: string;
+  ambiguityDefaultTarget?: SessionInvoice;
 }
 
 function getTime() {
@@ -94,6 +102,47 @@ function extractClientSection(text: string, clientName: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+function buildSessionContext(sessionInvoices: SessionInvoice[]): string {
+  if (sessionInvoices.length === 0)
+    return "No existing invoices in this session.";
+  const lines = sessionInvoices.map((si) => {
+    const inv = si.invoice;
+    const num = si.invoiceNumber || "Draft";
+    const items = inv.lineItems?.map((l) => l.description).join(", ") || "";
+    return `- ${num}: ${inv.clientName} | ₹${inv.total.toLocaleString(
+      "en-IN"
+    )} | GST ${inv.gstPercent}% | ${
+      inv.paymentTermsDays
+    } days | Items: ${items}`;
+  });
+  return `Existing invoices in this session:\n${lines.join("\n")}`;
+}
+
+function findMatchingInvoices(
+  sessionInvoices: SessionInvoice[],
+  ref: string
+): SessionInvoice[] {
+  if (!ref) return [];
+  const refLower = ref.toLowerCase().trim();
+
+  const byNumber = sessionInvoices.filter(
+    (si) => si.invoiceNumber?.toLowerCase() === refLower
+  );
+  if (byNumber.length > 0) return byNumber;
+
+  const byExactName = sessionInvoices.filter(
+    (si) => si.invoice.clientName.toLowerCase() === refLower
+  );
+  if (byExactName.length > 0) return byExactName;
+
+  const byPartialName = sessionInvoices.filter(
+    (si) =>
+      si.invoice.clientName.toLowerCase().includes(refLower) ||
+      refLower.includes(si.invoice.clientName.toLowerCase())
+  );
+  return byPartialName;
+}
+
 export function useInvoiceChat() {
   const { user, isLoaded } = useUser();
 
@@ -114,9 +163,20 @@ export function useInvoiceChat() {
   );
 
   const pendingClientStateRef = useRef<PendingClientState | null>(null);
+  const sessionInvoicesRef = useRef<SessionInvoice[]>([]);
+  const currentSessionIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const isInitialLoadRef = useRef(true); // ← track first load
+  const isInitialLoadRef = useRef(true);
+
+  // Keep refs in sync
+  useEffect(() => {
+    sessionInvoicesRef.current = sessionInvoices;
+  }, [sessionInvoices]);
+
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
 
   const setTabTemporarily = (tab: "draft" | "confirmed") => {
     setPanelTab(tab);
@@ -137,20 +197,18 @@ export function useInvoiceChat() {
     loadSessions();
   }, [isLoaded, user]);
 
-  // ── Save currentSessionId to localStorage on change ──
   useEffect(() => {
     if (!user) return;
     if (currentSessionId) {
       localStorage.setItem(`ledger_session_${user.id}`, currentSessionId);
     }
-    // NOTE: don't remove on null — only explicit actions remove it
   }, [currentSessionId, user]);
 
-  // ── Shared: load messages for a session by ID ──
   const loadMessagesForSession = useCallback(
     async (userId: string, sessionId: string) => {
       setCurrentSessionId(sessionId);
       setLoadingMessages(true);
+      // ── Clear immediately — no stale data ──
       setMessages([]);
       setSessionInvoices([]);
       setSelectedPanelMessageId(null);
@@ -163,19 +221,76 @@ export function useInvoiceChat() {
           setMessages([WELCOME]);
         } else {
           setMessages(msgs.map(toUIMessage));
-          const invoices: SessionInvoice[] = msgs
-            .filter((m) => m.invoice?.data)
-            .map((m) => ({
-              messageId: m._id,
-              invoice: m.invoice!.data,
-              isConfirmed: m.invoice!.isConfirmed,
-              invoiceNumber: m.invoice!.invoiceNumber,
-              invoiceId: m.invoice!.invoiceId,
-              dbMessageId: m._id,
-            }));
-          setSessionInvoices(invoices);
-          if (invoices.length > 0) {
-            setSelectedPanelMessageId(invoices[invoices.length - 1].messageId);
+
+          const invoiceMsgs = msgs.filter(
+            (m) => m.invoice?.data && m.invoice?.invoiceId
+          );
+
+          if (invoiceMsgs.length > 0) {
+            // ── Fetch fresh data from DB, skip deleted invoices ──
+            const invoiceResults = await Promise.all(
+              invoiceMsgs.map(async (m) => {
+                const invoiceId = m.invoice!.invoiceId;
+                if (!invoiceId) return null;
+
+                try {
+                  const dbInvoice = await fetchInvoiceById(invoiceId);
+                  if (!dbInvoice) return null; // deleted
+
+                  return {
+                    messageId: m._id,
+                    invoice: {
+                      clientName: dbInvoice.clientName,
+                      lineItems: dbInvoice.lineItems,
+                      gstPercent: dbInvoice.gstPercent,
+                      paymentTermsDays: dbInvoice.paymentTermsDays,
+                      subtotal: dbInvoice.subtotal,
+                      gstAmount: dbInvoice.gstAmount,
+                      total: dbInvoice.total,
+                      invoiceDate: dbInvoice.invoiceDate,
+                      invoiceMonth: dbInvoice.invoiceMonth,
+                    } as ParsedInvoice,
+                    isConfirmed: dbInvoice.isConfirmed,
+                    invoiceNumber: dbInvoice.invoiceNumber,
+                    invoiceId: invoiceId,
+                    dbMessageId: m._id,
+                  } as SessionInvoice;
+                } catch (err) {
+                  // ── 404 or any error = invoice deleted from DB, skip it ──
+                  console.log(
+                    `⚠️ Invoice ${invoiceId} not found in DB, skipping
+                    ${err}
+                    `
+                  );
+                  return null;
+                }
+              })
+            );
+
+            // ── Filter out nulls (deleted invoices) ──
+            const invoices = invoiceResults.filter(
+              (inv): inv is SessionInvoice => inv !== null
+            );
+
+            setSessionInvoices(invoices);
+
+            if (invoices.length > 0) {
+              const now = new Date();
+              const currentMonth = now.toLocaleDateString("en-IN", {
+                month: "long",
+                year: "numeric",
+              });
+              const currentMonthInvoice = invoices.find(
+                (inv) =>
+                  inv.invoice.invoiceMonth?.toLowerCase() ===
+                  currentMonth.toLowerCase()
+              );
+              setSelectedPanelMessageId(
+                currentMonthInvoice
+                  ? currentMonthInvoice.messageId
+                  : invoices[invoices.length - 1].messageId
+              );
+            }
           }
         }
       } catch (err) {
@@ -194,7 +309,6 @@ export function useInvoiceChat() {
       const data = await getUserChatSessions(user.id);
       setSessions(data);
 
-      // ── Auto-restore on initial mount only ──
       if (isInitialLoadRef.current) {
         isInitialLoadRef.current = false;
         const savedSessionId = localStorage.getItem(
@@ -321,6 +435,301 @@ export function useInvoiceChat() {
     setSessionInvoices((prev) => [...prev, newSessionInvoice]);
     setSelectedPanelMessageId(savedAssistantMsg._id);
     setTabTemporarily("draft");
+
+    // ── Show similar invoice warning if exists ──
+    if (savedDraft?.hasSimilar && savedDraft.similarInvoiceNumber) {
+      await addAndShowAIMessage(
+        `⚠️ Note — a confirmed invoice for **${invoice.clientName}** already exists in **${savedDraft.similarInvoiceMonth}** (**${savedDraft.similarInvoiceNumber}**). ` +
+          `This new draft has been saved as **${savedDraft.invoiceNumber}**.\n\nReview both in the panel and discard if not needed.`,
+        sessionId
+      );
+    }
+  };
+
+  // ── Shared: apply edit to a specific invoice ──
+  const applyEditToInvoice = async (
+    target: SessionInvoice,
+    parsedInvoice: ParsedInvoice & { changedFields?: string[] },
+    sessionId: string
+  ) => {
+    const changedFields = parsedInvoice.changedFields || [];
+
+    // ── Only apply what actually changed, preserve everything else ──
+    const updatedInvoice: ParsedInvoice = { ...target.invoice };
+
+    if (changedFields.includes("clientName") && parsedInvoice.clientName) {
+      updatedInvoice.clientName = parsedInvoice.clientName;
+    }
+    if (changedFields.includes("gstPercent")) {
+      updatedInvoice.gstPercent = parsedInvoice.gstPercent;
+    }
+    if (changedFields.includes("paymentTermsDays")) {
+      updatedInvoice.paymentTermsDays = parsedInvoice.paymentTermsDays;
+    }
+    if (changedFields.includes("lineItems")) {
+      updatedInvoice.lineItems = parsedInvoice.lineItems;
+    }
+    if (changedFields.includes("invoiceDate")) {
+      updatedInvoice.invoiceDate = parsedInvoice.invoiceDate;
+    }
+    if (changedFields.includes("invoiceMonth")) {
+      updatedInvoice.invoiceMonth = parsedInvoice.invoiceMonth;
+    }
+
+    // ── Always recalculate totals from current line items + current GST ──
+    const subtotal = updatedInvoice.lineItems.reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
+    const gstAmount = Math.round((subtotal * updatedInvoice.gstPercent) / 100);
+    updatedInvoice.subtotal = subtotal;
+    updatedInvoice.gstAmount = gstAmount;
+    updatedInvoice.total = subtotal + gstAmount;
+
+    // rest of DB update + state update stays the same...
+    if (target.invoiceId) {
+      try {
+        await updateInvoice(target.invoiceId, {
+          clientName: updatedInvoice.clientName,
+          lineItems: updatedInvoice.lineItems,
+          paymentTermsDays: updatedInvoice.paymentTermsDays,
+          gstPercent: updatedInvoice.gstPercent,
+          subtotal: updatedInvoice.subtotal,
+          gstAmount: updatedInvoice.gstAmount,
+          total: updatedInvoice.total,
+        });
+      } catch (err) {
+        console.error("Failed to update invoice in DB:", err);
+      }
+    }
+
+    setSessionInvoices((prev) =>
+      prev.map((s) =>
+        s.messageId === target.messageId ? { ...s, invoice: updatedInvoice } : s
+      )
+    );
+
+    const sessionId_ = currentSessionIdRef.current;
+    if (sessionId_) {
+      try {
+        await updateMessageInvoiceData(
+          sessionId_,
+          target.messageId,
+          updatedInvoice
+        );
+      } catch (err) {
+        console.error("Failed to persist edit:", err);
+      }
+    }
+
+    setSelectedPanelMessageId(target.messageId);
+
+    const changedList = changedFields.join(", ") || "invoice";
+    await addAndShowAIMessage(
+      `✅ Updated **${target.invoice.clientName}**'s invoice (${
+        target.invoiceNumber || "Draft"
+      }) — changed: ${changedList}.\n\nNew total: **₹${updatedInvoice.total.toLocaleString(
+        "en-IN"
+      )}**. Review in the panel →`,
+      sessionId
+    );
+  };
+
+  // ── Shared: clone invoice for new client ──
+  const applyCopyFromInvoice = async (
+    source: SessionInvoice,
+    newClientName: string,
+    sessionId: string
+  ) => {
+    const cloned: ParsedInvoice = {
+      ...source.invoice,
+      clientName: newClientName,
+    };
+    await addAndShowAIMessage(
+      `Copying **${source.invoice.clientName}**'s invoice for **${newClientName}**...`,
+      sessionId
+    );
+    await proceedWithInvoice(cloned, null, sessionId);
+  };
+
+  // ── Handle edit intent from AI ──
+  const handleEditIntent = async (
+    parsedInvoice: ParsedInvoice & {
+      targetInvoiceRef?: string;
+      changedFields?: string[];
+    },
+    sessionId: string
+  ) => {
+    const ref = parsedInvoice.targetInvoiceRef || "";
+    const matches = findMatchingInvoices(sessionInvoicesRef.current, ref);
+
+    if (matches.length === 0) {
+      await addAndShowAIMessage(
+        `I couldn't find an invoice matching **"${ref}"** in this session.\n\nPlease use the full client name or invoice number (e.g. **INV-2026-001**).`,
+        sessionId
+      );
+      return;
+    }
+
+    if (matches.length > 1) {
+      const latest = [...matches].sort((a, b) =>
+        b.dbMessageId.localeCompare(a.dbMessageId)
+      )[0];
+
+      updatePendingClientState({
+        status: "awaiting_ambiguity_resolution",
+        ambiguityAction: "edit",
+        ambiguityRef: ref,
+        ambiguityEditedInvoice: parsedInvoice,
+        ambiguityDefaultTarget: latest,
+        sessionId,
+      });
+
+      await addAndShowAIMessage(
+        `Found multiple invoices matching **"${ref}"**. Applying to the most recent one:\n\n` +
+          `**${latest.invoiceNumber || "Draft"}** — ${
+            latest.invoice.clientName
+          } — ₹${latest.invoice.total.toLocaleString("en-IN")}\n\n` +
+          `Reply **yes** to confirm, or share a specific invoice number like **INV-XXXX-XXX**.`,
+        sessionId
+      );
+      return;
+    }
+
+    await applyEditToInvoice(matches[0], parsedInvoice, sessionId);
+  };
+
+  // ── Handle copy intent from AI ──
+  const handleCopyIntent = async (
+    parsedInvoice: ParsedInvoice & { targetInvoiceRef?: string },
+    sessionId: string
+  ) => {
+    const ref = parsedInvoice.targetInvoiceRef || "";
+    const newClientName = parsedInvoice.clientName;
+    const matches = findMatchingInvoices(sessionInvoicesRef.current, ref);
+
+    if (matches.length === 0) {
+      await addAndShowAIMessage(
+        `I couldn't find an invoice matching **"${ref}"** in this session.\n\nPlease use the full client name or invoice number.`,
+        sessionId
+      );
+      return;
+    }
+
+    if (matches.length > 1) {
+      const latest = [...matches].sort((a, b) =>
+        b.dbMessageId.localeCompare(a.dbMessageId)
+      )[0];
+
+      updatePendingClientState({
+        status: "awaiting_ambiguity_resolution",
+        ambiguityAction: "copy",
+        ambiguityRef: ref,
+        ambiguityCopyTargetClient: newClientName,
+        ambiguityDefaultTarget: latest,
+        sessionId,
+      });
+
+      await addAndShowAIMessage(
+        `Found multiple invoices matching **"${ref}"**. Copying from the most recent one:\n\n` +
+          `**${latest.invoiceNumber || "Draft"}** — ${
+            latest.invoice.clientName
+          } — ₹${latest.invoice.total.toLocaleString("en-IN")}\n\n` +
+          `Reply **yes** to confirm, or share a specific invoice number like **INV-XXXX-XXX**.`,
+        sessionId
+      );
+      return;
+    }
+
+    await applyCopyFromInvoice(matches[0], newClientName, sessionId);
+  };
+
+  // ── Handle ambiguity resolution reply ──
+  const handleAmbiguityResolutionReply = async (
+    reply: string,
+    sessionId: string
+  ) => {
+    const current = pendingClientStateRef.current;
+    if (!current) return;
+
+    const isYes =
+      reply.toLowerCase().trim() === "yes" ||
+      reply.toLowerCase().trim() === "haan" ||
+      reply.toLowerCase().trim() === "confirm";
+
+    // User confirmed the default target
+    if (isYes && current.ambiguityDefaultTarget) {
+      updatePendingClientState(null);
+
+      if (
+        current.ambiguityAction === "edit" &&
+        current.ambiguityEditedInvoice
+      ) {
+        await applyEditToInvoice(
+          current.ambiguityDefaultTarget,
+          current.ambiguityEditedInvoice,
+          sessionId
+        );
+      } else if (current.ambiguityAction === "copy") {
+        await applyCopyFromInvoice(
+          current.ambiguityDefaultTarget,
+          current.ambiguityCopyTargetClient || "New Client",
+          sessionId
+        );
+      }
+      return;
+    }
+
+    // User gave a specific invoice number or name
+    updatePendingClientState(null);
+    const matches = findMatchingInvoices(
+      sessionInvoicesRef.current,
+      reply.trim()
+    );
+
+    if (matches.length === 0) {
+      await addAndShowAIMessage(
+        `Couldn't find **"${reply}"**. Please use the exact invoice number like **INV-2026-001**.`,
+        sessionId
+      );
+      return;
+    }
+
+    if (matches.length > 1) {
+      const latest = [...matches].sort((a, b) =>
+        b.dbMessageId.localeCompare(a.dbMessageId)
+      )[0];
+      updatePendingClientState({
+        ...current,
+        ambiguityDefaultTarget: latest,
+        ambiguityRef: reply,
+      });
+      await addAndShowAIMessage(
+        `Still found multiple matches. Using most recent:\n\n` +
+          `**${latest.invoiceNumber || "Draft"}** — ${
+            latest.invoice.clientName
+          } — ₹${latest.invoice.total.toLocaleString("en-IN")}\n\n` +
+          `Reply **yes** to confirm or use exact invoice number like **INV-2026-001**.`,
+        sessionId
+      );
+      return;
+    }
+
+    const target = matches[0];
+
+    if (current.ambiguityAction === "edit" && current.ambiguityEditedInvoice) {
+      await applyEditToInvoice(
+        target,
+        current.ambiguityEditedInvoice,
+        sessionId
+      );
+    } else if (current.ambiguityAction === "copy") {
+      await applyCopyFromInvoice(
+        target,
+        current.ambiguityCopyTargetClient || "New Client",
+        sessionId
+      );
+    }
   };
 
   const handleClientConfirmReply = async (reply: string, sessionId: string) => {
@@ -344,7 +753,12 @@ export function useInvoiceChat() {
     } else {
       updatePendingClientState({ ...current, status: "awaiting_details" });
       await addAndShowAIMessage(
-        `Got it! **${clientName}** is a new client. Please share their details.\n\n**Email** *(required)*\nCity, State, Address, Phone, GSTIN *(optional)*\n\nOr say **skip**.`,
+        `Got it! **${clientName}** is a new client. Please share their details.\n\n` +
+          `**Email** *(required)*\n` +
+          `*(Optional: Address, City, State, Phone, GSTIN)*\n\n` +
+          `💡 Best format: \`email, address, city, state\`\n` +
+          `e.g. \`rahul@gmail.com, E-24 Sector 85, Faridabad, Haryana\`\n\n` +
+          `Or say **skip**.`,
         sessionId
       );
     }
@@ -497,7 +911,12 @@ export function useInvoiceChat() {
         sessionId,
       });
       await addAndShowAIMessage(
-        `Got it! I've prepared the invoice for **${invoice.clientName}**. To send it, I'll need their contact details.\n\n**Email** *(required)*\nCity, State, Address, Phone, GSTIN *(optional)*\n\nOr say **skip** to create without client details.`,
+        `Got it! I've prepared the invoice for **${invoice.clientName}**. To send it, I'll need their contact details.\n\n` +
+          `**Email** *(required)*\n` +
+          `*(Optional: Address, City, State, Phone, GSTIN)*\n\n` +
+          `💡 Best format: \`email, address, city, state\`\n` +
+          `e.g. \`john@gmail.com, D Block Sector 103, Greater Noida, Uttar Pradesh\`\n\n` +
+          `Or say **skip** to create without client details.`,
         sessionId
       );
     }
@@ -524,6 +943,20 @@ export function useInvoiceChat() {
       );
       for (const { invoice, matchResult } of exactMatches) {
         await proceedWithInvoice(invoice, matchResult.client, sessionId);
+      }
+
+      // ── Auto-select current month invoice after all are created ──
+      const now = new Date();
+      const currentMonth = now.toLocaleDateString("en-IN", {
+        month: "long",
+        year: "numeric",
+      });
+      const currentMonthInvoice = sessionInvoicesRef.current.find(
+        (si) =>
+          si.invoice.invoiceMonth?.toLowerCase() === currentMonth.toLowerCase()
+      );
+      if (currentMonthInvoice) {
+        setSelectedPanelMessageId(currentMonthInvoice.messageId);
       }
       return;
     }
@@ -583,8 +1016,6 @@ export function useInvoiceChat() {
       parts.push(
         `\nFormat your reply as:\n**ClientName** - email, phone (optional)\n**ClientName2** - email`
       );
-    } else {
-      parts.push(`\n*(Optional: phone, GSTIN, city)*`);
     }
 
     parts.push(`\nOr say **skip** to create without client details.`);
@@ -598,6 +1029,20 @@ export function useInvoiceChat() {
 
     for (const { invoice, matchResult } of exactMatches) {
       await proceedWithInvoice(invoice, matchResult.client, sessionId);
+    }
+
+    // ── Auto-select current month invoice after exact matches are created ──
+    const now = new Date();
+    const currentMonth = now.toLocaleDateString("en-IN", {
+      month: "long",
+      year: "numeric",
+    });
+    const currentMonthInvoice = sessionInvoicesRef.current.find(
+      (si) =>
+        si.invoice.invoiceMonth?.toLowerCase() === currentMonth.toLowerCase()
+    );
+    if (currentMonthInvoice) {
+      setSelectedPanelMessageId(currentMonthInvoice.messageId);
     }
   };
 
@@ -625,6 +1070,7 @@ export function useInvoiceChat() {
         )
       );
 
+      // ── Route pending states ──
       if (pendingClientStateRef.current?.status === "awaiting_confirm") {
         await handleClientConfirmReply(prompt, sessionId);
         return;
@@ -637,8 +1083,19 @@ export function useInvoiceChat() {
         await handleMultiClientDetailsReply(prompt, sessionId);
         return;
       }
+      if (
+        pendingClientStateRef.current?.status ===
+        "awaiting_ambiguity_resolution"
+      ) {
+        await handleAmbiguityResolutionReply(prompt, sessionId);
+        return;
+      }
 
-      const result = await parseInvoiceWithAI(prompt, user.id);
+      // ── Build session context for AI ──
+      const sessionContext = buildSessionContext(sessionInvoicesRef.current);
+
+      // ── Parse with AI ──
+      const result = await parseInvoiceWithAI(prompt, user.id, sessionContext);
 
       if (
         result.isMultiple &&
@@ -646,19 +1103,31 @@ export function useInvoiceChat() {
         result.invoicesWithMatch.length > 1
       ) {
         await handleMultiMatchResults(result.invoicesWithMatch, sessionId);
-      } else if (result.invoice && result.matchResult) {
-        try {
-          await handleMatchResult(
-            result.invoice,
-            result.matchResult,
-            sessionId
-          );
-        } catch (err) {
-          console.error("❌ handleMatchResult failed:", err);
-          await proceedWithInvoice(result.invoice, null, sessionId);
-        }
       } else if (result.invoice) {
-        await proceedWithInvoice(result.invoice, null, sessionId);
+        const invoice = result.invoice as ParsedInvoice & {
+          intent?: "new" | "edit" | "copy";
+          targetInvoiceRef?: string;
+          changedFields?: string[];
+        };
+
+        const intent = invoice.intent || "new";
+
+        if (intent === "edit") {
+          await handleEditIntent(invoice, sessionId);
+        } else if (intent === "copy") {
+          await handleCopyIntent(invoice, sessionId);
+        } else {
+          if (result.matchResult) {
+            try {
+              await handleMatchResult(invoice, result.matchResult, sessionId);
+            } catch (err) {
+              console.error("❌ handleMatchResult failed:", err);
+              await proceedWithInvoice(invoice, null, sessionId);
+            }
+          } else {
+            await proceedWithInvoice(invoice, null, sessionId);
+          }
+        }
       }
 
       loadSessions();
@@ -830,7 +1299,6 @@ export function useInvoiceChat() {
     }
   };
 
-  // ── Load session (manual click) ──
   const handleLoadSession = async (session: ChatSessionAPI) => {
     if (!user) return;
     await loadMessagesForSession(user.id, session._id);

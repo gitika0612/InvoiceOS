@@ -16,13 +16,13 @@ import {
 } from "lucide-react";
 import { fetchInvoiceById } from "@/lib/mockInvoiceParser";
 import { downloadInvoicePDF } from "@/lib/downloadPDF";
-import { EditInvoiceModal } from "@/components/invoice/EditInvoiceModal";
+import { EditInvoiceModal } from "@/components/invoice/modals/EditInvoiceModal";
 import { updateInvoice } from "@/lib/mockInvoiceParser";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { SendInvoiceModal } from "@/components/invoice/SendInvoiceModel";
+import { SendInvoiceModal } from "@/components/invoice/modals/SendInvoiceModel";
 
 interface Invoice {
   _id: string;

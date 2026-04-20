@@ -24,6 +24,7 @@ export interface IInvoiceDocument extends Document {
   invoiceDate: Date;
   invoiceMonth: string;
   dueDate: Date;
+  idempotencyKey: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,6 +70,7 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
       type: Date,
       default: () => new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
     },
+    idempotencyKey: { type: String, default: null, sparse: true, index: true },
   },
   { timestamps: true }
 );

@@ -3,17 +3,14 @@ import {
   FileText,
   ChevronRight,
   ChevronLeft,
-  Search,
-  X,
   ChevronDown,
   ChevronUp,
   ArrowUpDown,
 } from "lucide-react";
 import { ParsedInvoice } from "./InvoicePreviewCard";
 import { InvoicePreviewCard } from "./InvoicePreviewCard";
-import { Input } from "@/components/ui/input";
+import { InvoicePanelFilters } from "./filters/InvoicePanelFilters";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -35,7 +32,7 @@ export interface SessionInvoice {
 interface InvoicePanelProps {
   sessionInvoices: SessionInvoice[];
   selectedMessageId: string | null;
-  activeTab?: "draft" | "confirmed"; // ← new prop
+  activeTab?: "draft" | "confirmed";
   onConfirm: (messageId: string) => void;
   onDiscard: (messageId: string) => void;
   onEdit: (messageId: string, updated: ParsedInvoice) => void;
@@ -54,12 +51,71 @@ function formatINR(amount: number) {
   }).format(amount);
 }
 
+function parseMonthKey(key: string): Date {
+  const months: Record<string, number> = {
+    january: 0,
+    february: 1,
+    march: 2,
+    april: 3,
+    may: 4,
+    june: 5,
+    july: 6,
+    august: 7,
+    september: 8,
+    october: 9,
+    november: 10,
+    december: 11,
+  };
+  const parts = key.toLowerCase().split(" ");
+  const month = months[parts[0]] ?? 0;
+  const year = parseInt(parts[1]) || new Date().getFullYear();
+  return new Date(year, month, 1);
+}
+
+function sortMonthKeys(keys: string[]): string[] {
+  const now = new Date();
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  return [...keys].sort((a, b) => {
+    const aMs = parseMonthKey(a).getTime();
+    const bMs = parseMonthKey(b).getTime();
+    const nowMs = currentMonthStart.getTime();
+    const aIsCurrent = aMs === nowMs;
+    const bIsCurrent = bMs === nowMs;
+    const aIsFuture = aMs > nowMs;
+    const bIsFuture = bMs > nowMs;
+    if (aIsCurrent) return -1;
+    if (bIsCurrent) return 1;
+    if (aIsFuture && bIsFuture) return aMs - bMs;
+    if (aIsFuture) return -1;
+    if (bIsFuture) return 1;
+    return bMs - aMs;
+  });
+}
+
 function getGroupKey(si: SessionInvoice): string {
   if (si.invoice.invoiceMonth) return si.invoice.invoiceMonth;
   return new Date().toLocaleDateString("en-IN", {
     month: "long",
     year: "numeric",
   });
+}
+
+function isCurrentMonth(key: string): boolean {
+  const current = new Date().toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+  return key.toLowerCase() === current.toLowerCase();
+}
+
+function isFutureMonth(key: string): boolean {
+  const date = parseMonthKey(key);
+  const currentStart = new Date(
+    new Date().getFullYear(),
+    new Date().getMonth(),
+    1
+  );
+  return date.getTime() > currentStart.getTime();
 }
 
 export function InvoicePanel({
@@ -78,7 +134,10 @@ export function InvoicePanel({
   );
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
-  const [filterClient, setFilterClient] = useState("");
+  const [selectedClients, setSelectedClients] = useState<Set<string>>(
+    new Set()
+  );
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<
     Record<string, boolean>
   >({});
@@ -86,14 +145,28 @@ export function InvoicePanel({
   const drafts = [...sessionInvoices.filter((s) => !s.isConfirmed)].reverse();
   const confirmed = [...sessionInvoices.filter((s) => s.isConfirmed)].reverse();
 
-  // ── Tab priority: activeTab (from parent) > userSelectedTab > defaultTab ──
   const latestInvoice = sessionInvoices[sessionInvoices.length - 1];
   const defaultTab: StatusFilter = latestInvoice?.isConfirmed
     ? "confirmed"
     : "draft";
   const manualTab: StatusFilter = activeTab ?? userSelectedTab ?? defaultTab;
-
   const baseList = manualTab === "draft" ? drafts : confirmed;
+
+  const allClients = useMemo(
+    () => [...new Set(baseList.map((si) => si.invoice.clientName))].sort(),
+    [baseList]
+  );
+
+  const allMonths = useMemo(() => {
+    const months = [...new Set(baseList.map((si) => getGroupKey(si)))];
+    return sortMonthKeys(months);
+  }, [baseList]);
+
+  const activeFilterCount = useMemo(
+    () =>
+      (selectedClients.size > 0 ? 1 : 0) + (selectedMonths.size > 0 ? 1 : 0),
+    [selectedClients, selectedMonths]
+  );
 
   const filtered = useMemo(
     () =>
@@ -102,12 +175,14 @@ export function InvoicePanel({
         const matchSearch =
           si.invoice.clientName.toLowerCase().includes(q) ||
           (si.invoiceNumber || "").toLowerCase().includes(q);
-        const matchClient = filterClient
-          ? si.invoice.clientName === filterClient
-          : true;
-        return matchSearch && matchClient;
+        const matchClient =
+          selectedClients.size === 0 ||
+          selectedClients.has(si.invoice.clientName);
+        const matchMonth =
+          selectedMonths.size === 0 || selectedMonths.has(getGroupKey(si));
+        return matchSearch && matchClient && matchMonth;
       }),
-    [baseList, search, filterClient]
+    [baseList, search, selectedClients, selectedMonths]
   );
 
   const sorted = useMemo(
@@ -115,8 +190,6 @@ export function InvoicePanel({
       [...filtered].sort((a, b) => {
         switch (sortBy) {
           case "newest":
-            // MongoDB ObjectId contains timestamp in first 4 bytes
-            // Compare dbMessageId lexicographically (later IDs are lexicographically greater)
             return b.dbMessageId.localeCompare(a.dbMessageId);
           case "oldest":
             return a.dbMessageId.localeCompare(b.dbMessageId);
@@ -143,11 +216,38 @@ export function InvoicePanel({
     return groups;
   }, [sorted]);
 
-  const hasFilters = search || filterClient;
-  const clearFilters = () => {
-    setSearch("");
-    setFilterClient("");
+  const sortedGroupKeys = useMemo(
+    () => sortMonthKeys(Object.keys(grouped)),
+    [grouped]
+  );
+
+  const hasFilters =
+    search || selectedClients.size > 0 || selectedMonths.size > 0;
+
+  const toggleClient = (client: string) => {
+    setSelectedClients((prev) => {
+      const next = new Set(prev);
+      if (next.has(client)) next.delete(client);
+      else next.add(client);
+      return next;
+    });
   };
+
+  const toggleMonth = (month: string) => {
+    setSelectedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(month)) next.delete(month);
+      else next.add(month);
+      return next;
+    });
+  };
+
+  const clearAll = () => {
+    setSearch("");
+    setSelectedClients(new Set());
+    setSelectedMonths(new Set());
+  };
+
   const toggleGroup = (key: string) =>
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -156,9 +256,9 @@ export function InvoicePanel({
   return (
     <div
       className={`
-      relative flex flex-col border-l border-gray-100 bg-[#FCFCFC]
+      relative flex flex-col border-l border-gray-100 bg-[#FAFAFA]
       transition-all duration-300 flex-shrink-0 h-full
-      ${collapsed ? "w-10" : "w-[450px]"}
+      ${collapsed ? "w-10" : "w-[500px]"}
     `}
     >
       <div className="absolute top-3 right-2 z-20">
@@ -178,23 +278,31 @@ export function InvoicePanel({
 
       {!collapsed && (
         <>
+          {/* ── Header ── */}
           <div className="flex-shrink-0 bg-white border-b border-gray-100">
-            <div className="px-4 pt-3 pb-2 pr-10">
-              <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">
+            {/* Title */}
+            <div className="px-4 pt-4 pb-3 pr-10">
+              <p className="text-xs font-bold text-gray-900 uppercase tracking-widest">
                 Session Invoices
               </p>
               <p className="text-xs text-gray-400 mt-0.5">
                 {sessionInvoices.length} invoice
-                {sessionInvoices.length !== 1 ? "s" : ""} · {drafts.length}{" "}
-                draft{drafts.length !== 1 ? "s" : ""} · {confirmed.length}{" "}
-                confirmed
+                {sessionInvoices.length !== 1 ? "s" : ""} ·{" "}
+                <span className="text-amber-500 font-medium">
+                  {drafts.length} draft{drafts.length !== 1 ? "s" : ""}
+                </span>
+                {" · "}
+                <span className="text-emerald-500 font-medium">
+                  {confirmed.length} confirmed
+                </span>
               </p>
             </div>
 
-            <div className="flex gap-1.5 px-4 pb-2 overflow-x-auto">
+            {/* Status tabs */}
+            <div className="flex gap-1.5 px-4 pb-3">
               {(
                 [
-                  { key: "draft", label: "Draft", count: drafts.length },
+                  { key: "draft", label: "Drafts", count: drafts.length },
                   {
                     key: "confirmed",
                     label: "Confirmed",
@@ -202,66 +310,63 @@ export function InvoicePanel({
                   },
                 ] as const
               ).map(({ key, label, count }) => (
-                <Badge
+                <button
                   key={key}
-                  variant="outline"
                   onClick={() => {
                     setUserSelectedTab(key);
                     const list = key === "draft" ? drafts : confirmed;
                     onSelect(list.length > 0 ? list[0].messageId : null);
                   }}
-                  className={`
-                  cursor-pointer flex-shrink-0 gap-1.5 rounded-full px-2.5 py-1
-                  text-xs font-semibold transition-all select-none
-                  ${
-                    manualTab === key
-                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-                      : "bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200"
-                  }
-                `}
-                >
-                  {label}
-                  <span
-                    className={`
-                    flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[10px] font-bold
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all select-none flex-1 justify-center
                     ${
                       manualTab === key
-                        ? "bg-indigo-100 text-indigo-700"
-                        : "bg-white text-gray-500"
-                    }
-                  `}
+                        ? key === "draft"
+                          ? "bg-amber-50 text-amber-700 border border-amber-200"
+                          : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        : "bg-gray-50 text-gray-500 border border-transparent hover:bg-gray-100"
+                    }`}
+                >
+                  <span>{label}</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                      manualTab === key
+                        ? key === "draft"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-emerald-100 text-emerald-700"
+                        : "bg-gray-200 text-gray-500"
+                    }`}
                   >
                     {count}
                   </span>
-                </Badge>
+                </button>
               ))}
             </div>
 
-            <div className="px-3 pb-2 flex gap-1.5">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
-                <Input
-                  placeholder="Search client, invoice number..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-7 pr-7 h-8 text-xs bg-gray-50 border-gray-200 rounded-lg focus-visible:ring-indigo-400"
+            {/* Search + Filter + Sort — extracted component */}
+            <div className="flex items-start px-3 pb-3">
+              <div className="flex-1 min-w-0">
+                <InvoicePanelFilters
+                  search={search}
+                  onSearchChange={setSearch}
+                  selectedClients={selectedClients}
+                  onToggleClient={toggleClient}
+                  onClearClients={() => setSelectedClients(new Set())}
+                  selectedMonths={selectedMonths}
+                  onToggleMonth={toggleMonth}
+                  onClearMonths={() => setSelectedMonths(new Set())}
+                  onClearAll={clearAll}
+                  allClients={allClients}
+                  allMonths={allMonths}
+                  activeFilterCount={activeFilterCount}
                 />
-                {search && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setSearch("")}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                )}
               </div>
+
+              {/* Sort — stays in parent */}
               <Select
                 value={sortBy}
                 onValueChange={(val) => setSortBy(val as SortOption)}
               >
-                <SelectTrigger className="w-28 h-8 text-xs bg-gray-50 border-gray-200 rounded-lg focus:ring-indigo-400 gap-1">
+                <SelectTrigger className="w-24 h-8 text-xs bg-gray-50 border-gray-200 rounded-lg gap-1 flex-shrink-0 mt-0">
                   <ArrowUpDown className="w-3 h-3 text-gray-400 flex-shrink-0" />
                   <SelectValue />
                 </SelectTrigger>
@@ -276,8 +381,9 @@ export function InvoicePanel({
             </div>
           </div>
 
-          <ScrollArea className="flex-1">
-            <div className="py-2 bg-white">
+          {/* ── Invoice list ── */}
+          <ScrollArea className="flex-1 bg-white">
+            <div className="py-3">
               {sorted.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center px-6">
                   <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
@@ -288,168 +394,233 @@ export function InvoicePanel({
                   </p>
                   <p className="text-xs text-gray-300 mt-1">
                     {hasFilters
-                      ? "Use search or filters to find invoices"
+                      ? "Try adjusting your filters"
                       : `No ${manualTab} invoices yet`}
                   </p>
                   {hasFilters && (
-                    <Button
-                      variant="link"
-                      onClick={clearFilters}
-                      className="text-xs text-indigo-500 mt-1 h-auto p-0"
+                    <button
+                      onClick={clearAll}
+                      className="text-xs text-indigo-500 mt-2 font-medium"
                     >
                       Clear filters
-                    </Button>
+                    </button>
                   )}
                 </div>
               ) : (
-                Object.entries(grouped).map(([group, items]) => {
+                sortedGroupKeys.map((group) => {
+                  const items = grouped[group];
+                  if (!items) return null;
                   const isGroupCollapsed = collapsedGroups[group];
+                  const isCurrent = isCurrentMonth(group);
+                  const isFuture = isFutureMonth(group);
+
                   return (
                     <div key={group} className="mb-1">
-                      {Object.keys(grouped).length > 1 && (
-                        <Button
-                          variant="ghost"
-                          onClick={() => toggleGroup(group)}
-                          className="w-full justify-between px-4 py-2 h-auto rounded-none text-xs hover:bg-gray-100"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                            <span className="font-bold text-gray-500 uppercase tracking-wide">
-                              {group}
+                      <button
+                        onClick={() => toggleGroup(group)}
+                        className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition-colors group"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                              isCurrent || isFuture
+                                ? "bg-indigo-400"
+                                : "bg-gray-300"
+                            }`}
+                          />
+                          <span
+                            className={`text-xs font-bold uppercase tracking-wider ${
+                              isCurrent || isFuture
+                                ? "text-indigo-600"
+                                : "text-gray-400"
+                            }`}
+                          >
+                            {group}
+                          </span>
+                          {isCurrent && (
+                            <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-500 text-[9px] font-bold rounded-md uppercase tracking-wide">
+                              Current
                             </span>
-                            <Badge
-                              variant="secondary"
-                              className="text-xs px-1.5 py-0 h-4 rounded-full font-normal"
-                            >
-                              {items.length}
-                            </Badge>
-                          </div>
-                          {isGroupCollapsed ? (
-                            <ChevronDown className="w-3 h-3 text-gray-400" />
-                          ) : (
-                            <ChevronUp className="w-3 h-3 text-gray-400" />
                           )}
-                        </Button>
-                      )}
+                          {isFuture && (
+                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-400 text-[9px] font-bold rounded-md uppercase tracking-wide">
+                              Upcoming
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-400 font-medium">
+                            {items.length} invoice
+                            {items.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-500">
+                            {formatINR(
+                              items.reduce(
+                                (sum, si) => sum + si.invoice.total,
+                                0
+                              )
+                            )}
+                          </span>
+                          {isGroupCollapsed ? (
+                            <ChevronDown className="w-3 h-3 text-gray-300 group-hover:text-gray-400" />
+                          ) : (
+                            <ChevronUp className="w-3 h-3 text-gray-300 group-hover:text-gray-400" />
+                          )}
+                        </div>
+                      </button>
 
-                      {!isGroupCollapsed &&
-                        items.map((si) => {
-                          const isSelected = selectedMessageId === si.messageId;
-                          return (
-                            <div key={si.messageId} className="px-3 mb-1.5">
-                              <div className="rounded-xl border border-gray-200 bg-white hover:shadow-[0_6px_20px_rgba(0,0,0,0.05)] overflow-hidden transition-all duration-200">
-                                <button
-                                  onClick={() =>
-                                    onSelect(isSelected ? null : si.messageId)
-                                  }
-                                  className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors
-                                  ${
+                      {!isGroupCollapsed && (
+                        <div className="space-y-1.5 px-3 pb-1">
+                          {items.map((si) => {
+                            const isSelected =
+                              selectedMessageId === si.messageId;
+                            return (
+                              <div key={si.messageId}>
+                                <div
+                                  className={`rounded-xl border overflow-hidden transition-all duration-200 ${
                                     isSelected
-                                      ? "bg-[#FAFAFA]"
-                                      : "bg-white hover:bg-gray-50"
+                                      ? "border-indigo-200 shadow-[0_0_0_3px_rgba(99,102,241,0.08)]"
+                                      : "border-gray-300 bg-white hover:shadow-sm"
                                   }`}
                                 >
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="min-w-0">
-                                        <div className="flex">
-                                          <p
-                                            className={`text-xs font-bold tracking-wide ${
-                                              isSelected
-                                                ? "text-gray-900"
-                                                : "text-gray-500"
-                                            }`}
-                                          >
-                                            {si.invoiceNumber}
-                                          </p>
-                                          {si.isConfirmed ? (
-                                            <Badge className="ml-2 text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full">
-                                              Confirmed
-                                            </Badge>
-                                          ) : (
-                                            <Badge
-                                              variant="secondary"
-                                              className="ml-2 text-xs font-medium px-2 py-0 rounded-full"
+                                  <button
+                                    onClick={() =>
+                                      onSelect(isSelected ? null : si.messageId)
+                                    }
+                                    className={`w-full text-left px-3.5 py-3 flex items-start gap-3 transition-colors ${
+                                      isSelected
+                                        ? "bg-indigo-50/30"
+                                        : "bg-white hover:bg-gray-50/50"
+                                    }`}
+                                  >
+                                    <div
+                                      className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                                        si.isConfirmed
+                                          ? "bg-emerald-400"
+                                          : "bg-amber-400"
+                                      }`}
+                                    />
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            {si.invoiceNumber && (
+                                              <span
+                                                className={`text-[10px] font-bold tracking-wide font-mono ${
+                                                  isSelected
+                                                    ? "text-indigo-600"
+                                                    : "text-gray-400"
+                                                }`}
+                                              >
+                                                {si.invoiceNumber}
+                                              </span>
+                                            )}
+                                            <span
+                                              className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md ${
+                                                si.isConfirmed
+                                                  ? "bg-emerald-50 text-emerald-600"
+                                                  : "bg-gray-100 text-gray-600"
+                                              }`}
                                             >
-                                              Draft
-                                            </Badge>
+                                              {si.isConfirmed
+                                                ? "Confirmed"
+                                                : "Draft"}
+                                            </span>
+                                          </div>
+                                          <p className="text-sm font-semibold text-gray-900 mt-0.5 truncate">
+                                            {si.invoice.clientName}
+                                          </p>
+                                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                            <span className="text-xs text-gray-400">
+                                              {si.invoice.lineItems?.length ||
+                                                0}{" "}
+                                              item
+                                              {(si.invoice.lineItems?.length ||
+                                                0) !== 1
+                                                ? "s"
+                                                : ""}
+                                            </span>
+                                            <span className="text-gray-200">
+                                              ·
+                                            </span>
+                                            <span className="text-xs text-gray-400">
+                                              GST {si.invoice.gstPercent}%
+                                            </span>
+                                            {si.invoice.invoiceMonth && (
+                                              <>
+                                                <span className="text-gray-200">
+                                                  ·
+                                                </span>
+                                                <span
+                                                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${
+                                                    isCurrentMonth(
+                                                      si.invoice.invoiceMonth
+                                                    ) ||
+                                                    isFutureMonth(
+                                                      si.invoice.invoiceMonth
+                                                    )
+                                                      ? "bg-indigo-50 text-indigo-500"
+                                                      : "bg-gray-50 text-gray-400"
+                                                  }`}
+                                                >
+                                                  {si.invoice.invoiceMonth}
+                                                </span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                          <p className="text-sm font-bold text-gray-900">
+                                            {formatINR(si.invoice.total)}
+                                          </p>
+                                          {isSelected ? (
+                                            <ChevronUp className="w-3.5 h-3.5 text-indigo-400" />
+                                          ) : (
+                                            <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
                                           )}
                                         </div>
-                                        <p className="text-sm font-semibold mt-0.5 truncate text-gray-900">
-                                          {si.invoice.clientName}
-                                        </p>
                                       </div>
-                                      <p className="text-sm font-semibold text-gray-900 flex-shrink-0">
-                                        {formatINR(si.invoice.total)}
-                                      </p>
                                     </div>
-                                    <div className="flex items-center gap-2 mt-1.5">
-                                      <div
-                                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                          si.isConfirmed
-                                            ? "bg-emerald-400"
-                                            : "bg-amber-400"
-                                        }`}
-                                      />
-                                      <p className="text-xs text-gray-400">
-                                        {si.isConfirmed ? "Confirmed" : "Draft"}{" "}
-                                        · {si.invoice.lineItems?.length || 0}{" "}
-                                        item
-                                        {(si.invoice.lineItems?.length || 0) !==
-                                        1
-                                          ? "s"
-                                          : ""}{" "}
-                                        · GST {si.invoice.gstPercent}%
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="flex-shrink-0 mt-1">
-                                    {isSelected ? (
-                                      <ChevronUp className="w-3.5 h-3.5 text-indigo-400" />
-                                    ) : (
-                                      <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
-                                    )}
-                                  </div>
-                                </button>
+                                  </button>
 
-                                {isSelected && (
-                                  <div className="border-t border-gray-100">
-                                    {/* ── Scrollable invoice card — fills to bottom ── */}
-                                    <div
-                                      className="p-3 overflow-y-auto"
-                                      style={{ height: "calc(100vh - 234px)" }}
-                                    >
-                                      <InvoicePreviewCard
-                                        invoice={si.invoice}
-                                        isConfirmed={si.isConfirmed}
-                                        invoiceId={si.invoiceId}
-                                        invoiceNumber={si.invoiceNumber}
-                                        userName={userName}
-                                        onConfirm={() =>
-                                          onConfirm(si.messageId)
-                                        }
-                                        onEdit={(updated) =>
-                                          onEdit(si.messageId, updated)
-                                        }
-                                        onDiscard={() => {
-                                          onDiscard(si.messageId);
-                                          const remaining = sorted.filter(
-                                            (s) => s.messageId !== si.messageId
-                                          );
-                                          onSelect(
-                                            remaining.length > 0
-                                              ? remaining[0].messageId
-                                              : null
-                                          );
-                                        }}
-                                      />
+                                  {isSelected && (
+                                    <div className="border-t border-indigo-100">
+                                      <div className="p-3 overflow-y-auto">
+                                        <InvoicePreviewCard
+                                          invoice={si.invoice}
+                                          isConfirmed={si.isConfirmed}
+                                          invoiceId={si.invoiceId}
+                                          invoiceNumber={si.invoiceNumber}
+                                          userName={userName}
+                                          onConfirm={() =>
+                                            onConfirm(si.messageId)
+                                          }
+                                          onEdit={(updated) =>
+                                            onEdit(si.messageId, updated)
+                                          }
+                                          onDiscard={() => {
+                                            onDiscard(si.messageId);
+                                            const remaining = sorted.filter(
+                                              (s) =>
+                                                s.messageId !== si.messageId
+                                            );
+                                            onSelect(
+                                              remaining.length > 0
+                                                ? remaining[0].messageId
+                                                : null
+                                            );
+                                          }}
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })

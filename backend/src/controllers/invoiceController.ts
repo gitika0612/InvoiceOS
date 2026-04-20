@@ -9,9 +9,9 @@ import { Invoice } from "../models/Invoice";
 import { generateInvoiceNumber } from "../lib/invoiceHelper";
 import { findClientMatch } from "../lib/clientMatcher";
 
-// ── Parse invoice (single or multi) ──
+// ── Parse invoice ──
 export async function parseInvoice(req: Request, res: Response): Promise<void> {
-  const { prompt, userId } = req.body;
+  const { prompt, userId, sessionContext } = req.body;
 
   if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
     res
@@ -36,6 +36,10 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
         detection.count > 1 &&
         detection.subPrompts.length > 1;
       subPrompts = detection.subPrompts;
+      console.log(
+        `🔍 Multi: ${detection.isMultiple}, count: ${detection.count}`
+      );
+      console.log("📝 Sub-prompts:", detection.subPrompts);
     } catch (detectionErr) {
       console.warn(
         "⚠️ Multi-detection failed, falling back to single:",
@@ -44,8 +48,18 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
       isMultiple = false;
     }
 
+    const context = sessionContext || "No existing invoices in this session.";
+
     if (isMultiple && subPrompts.length > 1) {
       const invoices = await parseMultipleInvoices(subPrompts);
+      // ── Debug: check what AI returns for dates ──
+      console.log(
+        "📅 Invoice dates from AI:",
+        invoices.map((inv) => ({
+          month: inv.invoiceMonth,
+          date: inv.invoiceDate,
+        }))
+      );
       const invoicesWithMatch = await Promise.all(
         invoices.map(async (invoice) => {
           const matchResult = userId
@@ -59,12 +73,12 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
         .status(200)
         .json({ success: true, isMultiple: true, invoicesWithMatch });
     } else {
-      const invoice = await parseInvoiceWithAI(prompt);
+      const invoice = await parseInvoiceWithAI(prompt, context);
       const matchResult = userId
         ? await findClientMatch(userId, invoice.clientName)
         : { type: "none", client: null, score: 0 };
       console.log(
-        `✅ Parsed for: ${invoice.clientName} | Match: ${matchResult.type}`
+        `✅ Parsed for: ${invoice.clientName} | Intent: ${invoice.intent} | Match: ${matchResult.type}`
       );
       res
         .status(200)
@@ -78,7 +92,7 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
   }
 }
 
-// ── Save draft invoice (auto-save on parse, isConfirmed: false) ──
+// ── Save draft invoice ──
 export async function saveDraftInvoice(
   req: Request,
   res: Response
@@ -96,6 +110,7 @@ export async function saveDraftInvoice(
     originalPrompt,
     invoiceDate,
     invoiceMonth,
+    idempotencyKey,
   } = req.body;
 
   if (!userId || !clientName || !total) {
@@ -104,21 +119,18 @@ export async function saveDraftInvoice(
   }
 
   try {
-    // Duplicate check — same client + total within 5 minutes
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const duplicate = await Invoice.findOne({
-      userId,
-      clientName,
-      total,
-      createdAt: { $gte: fiveMinutesAgo },
-    });
-
-    if (duplicate) {
-      console.log(`⚠️ Duplicate draft: ${duplicate.invoiceNumber}`);
-      res
-        .status(200)
-        .json({ success: true, invoice: duplicate, isDuplicate: true });
-      return;
+    // ── Idempotency check — same key = same request, return existing ──
+    if (idempotencyKey) {
+      const existing = await Invoice.findOne({ userId, idempotencyKey });
+      if (existing) {
+        console.log(
+          `⚠️ Idempotent request — returning existing: ${existing.invoiceNumber}`
+        );
+        res
+          .status(200)
+          .json({ success: true, invoice: existing, isDuplicate: true });
+        return;
+      }
     }
 
     const invoiceNumber = await generateInvoiceNumber();
@@ -129,12 +141,22 @@ export async function saveDraftInvoice(
     const resolvedDueDate = new Date(
       resolvedInvoiceDate.getTime() + terms * 24 * 60 * 60 * 1000
     );
+    const monthYearRegex = /^[A-Za-z]+ \d{4}$/;
     const resolvedInvoiceMonth =
-      invoiceMonth ||
-      resolvedInvoiceDate.toLocaleDateString("en-IN", {
-        month: "long",
-        year: "numeric",
-      });
+      invoiceMonth && monthYearRegex.test(invoiceMonth.trim())
+        ? invoiceMonth.trim()
+        : resolvedInvoiceDate.toLocaleDateString("en-IN", {
+            month: "long",
+            year: "numeric",
+          });
+
+    // ── Similar invoice warning — same client + same month + confirmed ──
+    const similar = await Invoice.findOne({
+      userId,
+      clientName,
+      invoiceMonth: resolvedInvoiceMonth,
+      isConfirmed: true,
+    });
 
     const invoice = await Invoice.create({
       userId,
@@ -154,17 +176,34 @@ export async function saveDraftInvoice(
       invoiceDate: resolvedInvoiceDate,
       invoiceMonth: resolvedInvoiceMonth,
       dueDate: resolvedDueDate,
+      idempotencyKey: idempotencyKey || null,
     });
 
-    console.log(`✅ Draft saved: ${invoiceNumber} for ${clientName}`);
-    res.status(201).json({ success: true, invoice });
+    console.log(
+      `✅ Draft saved: ${invoiceNumber} for ${clientName}${
+        similar ? " (similar exists)" : ""
+      }`
+    );
+
+    res.status(201).json({
+      success: true,
+      invoice,
+      hasSimilar: !!similar,
+      similarInvoice: similar
+        ? {
+            invoiceNumber: similar.invoiceNumber,
+            total: similar.total,
+            invoiceMonth: similar.invoiceMonth,
+          }
+        : null,
+    });
   } catch (err) {
     console.error("❌ Save draft error:", err);
     res.status(500).json({ error: "Failed to save draft invoice" });
   }
 }
 
-// ── Confirm invoice (user clicks Confirm → isConfirmed: true) ──
+// ── Confirm invoice ──
 export async function confirmInvoice(
   req: Request,
   res: Response
@@ -213,6 +252,7 @@ export async function getUserInvoices(
   }
 }
 
+// ── Update invoice ──
 export async function updateInvoice(
   req: Request,
   res: Response
@@ -231,7 +271,6 @@ export async function updateInvoice(
       return;
     }
 
-    // Sent/Overdue — only due date and status
     if (invoice.status === "sent" || invoice.status === "overdue") {
       const updated = await Invoice.findByIdAndUpdate(
         id,
@@ -245,7 +284,6 @@ export async function updateInvoice(
       return;
     }
 
-    // Draft — full edit
     const updated = await Invoice.findByIdAndUpdate(
       id,
       {
@@ -272,6 +310,7 @@ export async function updateInvoice(
   }
 }
 
+// ── Dashboard stats ──
 export async function getDashboardStats(
   req: Request,
   res: Response
@@ -294,7 +333,6 @@ export async function getDashboardStats(
       overdueCount,
       recentInvoices,
     ] = await Promise.all([
-      // Only count confirmed invoices in stats
       Invoice.countDocuments({ userId: clerkId }),
       Invoice.aggregate([
         {
@@ -341,6 +379,7 @@ export async function getDashboardStats(
   }
 }
 
+// ── Delete invoice ──
 export async function removeInvoice(
   req: Request,
   res: Response
@@ -361,6 +400,7 @@ export async function removeInvoice(
   }
 }
 
+// ── Get invoice by ID ──
 export async function getInvoiceById(
   req: Request,
   res: Response

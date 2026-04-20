@@ -12,7 +12,11 @@ export interface MatchResult {
 
 export interface ParseResult {
   isMultiple: boolean;
-  invoice?: ParsedInvoice;
+  invoice?: ParsedInvoice & {
+    intent?: "new" | "edit" | "copy";
+    targetInvoiceRef?: string;
+    changedFields?: string[];
+  };
   invoices?: ParsedInvoice[];
   matchResult?: MatchResult;
   invoicesWithMatch?: { invoice: ParsedInvoice; matchResult: MatchResult }[];
@@ -21,14 +25,22 @@ export interface ParseResult {
 export interface SavedDraft {
   invoiceNumber: string;
   isDuplicate: boolean;
+  hasSimilar: boolean;
+  similarInvoiceNumber?: string;
+  similarInvoiceMonth?: string;
   _id: string;
 }
 
 export async function parseInvoiceWithAI(
   prompt: string,
-  userId?: string
+  userId?: string,
+  sessionContext?: string
 ): Promise<ParseResult> {
-  const response = await api.post("/invoices/parse", { prompt, userId });
+  const response = await api.post("/invoices/parse", {
+    prompt,
+    userId,
+    sessionContext,
+  });
   return {
     isMultiple: response.data.isMultiple,
     invoice: response.data.invoice,
@@ -44,6 +56,11 @@ export async function saveDraftInvoice(
   originalPrompt: string,
   clientId?: string
 ): Promise<SavedDraft> {
+  // ── Generate unique idempotency key per save attempt ──
+  const idempotencyKey = `${userId}_${invoice.clientName}_${
+    invoice.total
+  }_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
   const response = await api.post("/invoices/save", {
     userId,
     clientName: invoice.clientName,
@@ -57,10 +74,14 @@ export async function saveDraftInvoice(
     invoiceDate: invoice.invoiceDate,
     invoiceMonth: invoice.invoiceMonth,
     clientId: clientId || "",
+    idempotencyKey,
   });
   return {
     invoiceNumber: response.data.invoice.invoiceNumber,
     isDuplicate: response.data.isDuplicate || false,
+    hasSimilar: response.data.hasSimilar || false,
+    similarInvoiceNumber: response.data.similarInvoice?.invoiceNumber,
+    similarInvoiceMonth: response.data.similarInvoice?.invoiceMonth,
     _id: response.data.invoice._id,
   };
 }
@@ -69,9 +90,7 @@ export async function confirmInvoice(
   invoiceId: string
 ): Promise<{ invoiceNumber: string }> {
   const response = await api.patch(`/invoices/${invoiceId}/confirm`);
-  return {
-    invoiceNumber: response.data.invoice.invoiceNumber,
-  };
+  return { invoiceNumber: response.data.invoice.invoiceNumber };
 }
 
 export async function saveInvoice(
@@ -110,5 +129,6 @@ export async function deleteInvoice(invoiceId: string): Promise<void> {
 
 export async function fetchInvoiceById(id: string) {
   const response = await api.get(`/invoices/${id}`);
+  if (!response.data.invoice) throw new Error("Invoice not found");
   return response.data.invoice;
 }
