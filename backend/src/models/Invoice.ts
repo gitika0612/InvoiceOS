@@ -1,21 +1,37 @@
 import mongoose, { Document, Schema } from "mongoose";
 
+export interface ILineItem {
+  description: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  amount: number;
+  hsnSacCode?: string;
+  hsnSacType?: "HSN" | "SAC";
+}
+
 export interface IInvoiceDocument extends Document {
   userId: string;
   invoiceNumber: string;
   clientId?: string;
   clientName: string;
-  lineItems: {
-    description: string;
-    quantity: number;
-    unit: string;
-    rate: number;
-    amount: number;
-  }[];
+  lineItems: ILineItem[];
   paymentTermsDays: number;
   gstPercent: number;
+  gstType: "IGST" | "CGST_SGST";
+  cgstPercent: number;
+  sgstPercent: number;
+  igstPercent: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  igstAmount: number;
+  gstAmount: number; // total GST regardless of type
+  discountType: "percent" | "amount" | "none";
+  discountValue: number;
+  discountAmount: number;
+  notes: string;
   subtotal: number;
-  gstAmount: number;
+  taxableAmount: number; // subtotal - discountAmount
   total: number;
   status: "draft" | "sent" | "paid" | "overdue";
   isConfirmed: boolean;
@@ -25,9 +41,22 @@ export interface IInvoiceDocument extends Document {
   invoiceMonth: string;
   dueDate: Date;
   idempotencyKey: string;
+  // ── RAG ──
+  embedding?: number[];
+  embeddedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const lineItemSchema = new Schema<ILineItem>({
+  description: { type: String, default: "" },
+  quantity: { type: Number, default: 1 },
+  unit: { type: String, default: "items" },
+  rate: { type: Number, default: 0 },
+  amount: { type: Number, default: 0 },
+  hsnSacCode: { type: String, default: "" },
+  hsnSacType: { type: String, enum: ["HSN", "SAC"], default: "SAC" },
+});
 
 const invoiceSchema = new Schema<IInvoiceDocument>(
   {
@@ -35,22 +64,31 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
     invoiceNumber: { type: String, required: true, unique: true },
     clientId: { type: String, default: "" },
     clientName: { type: String, required: true, trim: true },
-    lineItems: {
-      type: [
-        {
-          description: String,
-          quantity: Number,
-          unit: String,
-          rate: Number,
-          amount: Number,
-        },
-      ],
-      default: [],
-    },
+    lineItems: { type: [lineItemSchema], default: [] },
     paymentTermsDays: { type: Number, default: 15 },
     gstPercent: { type: Number, default: 18 },
+    gstType: {
+      type: String,
+      enum: ["IGST", "CGST_SGST"],
+      default: "CGST_SGST",
+    },
+    cgstPercent: { type: Number, default: 9 },
+    sgstPercent: { type: Number, default: 9 },
+    igstPercent: { type: Number, default: 0 },
+    cgstAmount: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    igstAmount: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
+    discountType: {
+      type: String,
+      enum: ["percent", "amount", "none"],
+      default: "none",
+    },
+    discountValue: { type: Number, default: 0 },
+    discountAmount: { type: Number, default: 0 },
+    notes: { type: String, default: "" },
     subtotal: { type: Number, required: true },
-    gstAmount: { type: Number, required: true },
+    taxableAmount: { type: Number, default: 0 },
     total: { type: Number, required: true },
     status: {
       type: String,
@@ -70,10 +108,32 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
       type: Date,
       default: () => new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
     },
-    idempotencyKey: { type: String, default: null, sparse: true, index: true },
+    idempotencyKey: {
+      type: String,
+      default: null,
+      sparse: true,
+      index: true,
+    },
+    // ── RAG ──
+    embedding: {
+      type: [Number],
+      default: undefined,
+      select: false,
+    },
+    embeddedAt: { type: Date, default: undefined },
   },
   { timestamps: true }
 );
+
+// ── Indexes ──
+invoiceSchema.index({
+  userId: 1,
+  clientName: 1,
+  isConfirmed: 1,
+  createdAt: -1,
+});
+invoiceSchema.index({ userId: 1, clientId: 1, isConfirmed: 1, createdAt: -1 });
+invoiceSchema.index({ userId: 1, invoiceMonth: 1 });
 
 export const Invoice = mongoose.model<IInvoiceDocument>(
   "Invoice",

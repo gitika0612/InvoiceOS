@@ -314,8 +314,20 @@ export function InvoicePanel({
                   key={key}
                   onClick={() => {
                     setUserSelectedTab(key);
+
                     const list = key === "draft" ? drafts : confirmed;
-                    onSelect(list.length > 0 ? list[0].messageId : null);
+
+                    const stillExists = list.find(
+                      (item) => item.messageId === selectedMessageId
+                    );
+
+                    onSelect(
+                      stillExists
+                        ? stillExists.messageId
+                        : list.length > 0
+                        ? list[0].messageId
+                        : null
+                    );
                   }}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all select-none flex-1 justify-center
                     ${

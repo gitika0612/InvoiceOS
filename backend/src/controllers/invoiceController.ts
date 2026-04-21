@@ -1,15 +1,10 @@
 /// <reference types="node" />
 import { Request, Response } from "express";
-import {
-  parseInvoiceWithAI,
-  detectMultiInvoice,
-  parseMultipleInvoices,
-} from "../lib/invoiceParser";
 import { Invoice } from "../models/Invoice";
 import { generateInvoiceNumber } from "../lib/invoiceHelper";
-import { findClientMatch } from "../lib/clientMatcher";
+import { embedInvoice } from "../lib/embeddingService";
+import { runInvoiceAgent } from "../agents/invoiceAgent";
 
-// ── Parse invoice ──
 export async function parseInvoice(req: Request, res: Response): Promise<void> {
   const { prompt, userId, sessionContext } = req.body;
 
@@ -21,71 +16,40 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    console.log(`🤖 Parsing: "${prompt}"`);
+    console.log(`🤖 Agent parsing: "${prompt}"`);
 
-    let isMultiple = false;
-    let subPrompts: string[] = [];
+    const result = await runInvoiceAgent({
+      prompt,
+      userId: userId || "",
+      sessionId: "",
+      sessionContext: sessionContext || "No existing invoices in this session.",
+    });
 
-    try {
-      const detection = await detectMultiInvoice(prompt);
-      console.log(
-        `🔍 Multi: ${detection.isMultiple}, count: ${detection.count}`
-      );
-      isMultiple =
-        detection.isMultiple &&
-        detection.count > 1 &&
-        detection.subPrompts.length > 1;
-      subPrompts = detection.subPrompts;
-      console.log(
-        `🔍 Multi: ${detection.isMultiple}, count: ${detection.count}`
-      );
-      console.log("📝 Sub-prompts:", detection.subPrompts);
-    } catch (detectionErr) {
-      console.warn(
-        "⚠️ Multi-detection failed, falling back to single:",
-        detectionErr
-      );
-      isMultiple = false;
+    if (result.error) {
+      res.status(500).json({ error: result.error });
+      return;
     }
 
-    const context = sessionContext || "No existing invoices in this session.";
-
-    if (isMultiple && subPrompts.length > 1) {
-      const invoices = await parseMultipleInvoices(subPrompts);
-      // ── Debug: check what AI returns for dates ──
-      console.log(
-        "📅 Invoice dates from AI:",
-        invoices.map((inv) => ({
-          month: inv.invoiceMonth,
-          date: inv.invoiceDate,
-        }))
-      );
-      const invoicesWithMatch = await Promise.all(
-        invoices.map(async (invoice) => {
-          const matchResult = userId
-            ? await findClientMatch(userId, invoice.clientName)
-            : { type: "none", client: null, score: 0 };
-          return { invoice, matchResult };
-        })
-      );
-      console.log(`✅ Parsed ${invoices.length} invoices`);
-      res
-        .status(200)
-        .json({ success: true, isMultiple: true, invoicesWithMatch });
+    if (result.isMultiple && result.invoicesWithMatch.length > 0) {
+      console.log(`✅ Agent: ${result.invoicesWithMatch.length} invoices`);
+      res.status(200).json({
+        success: true,
+        isMultiple: true,
+        invoicesWithMatch: result.invoicesWithMatch,
+      });
     } else {
-      const invoice = await parseInvoiceWithAI(prompt, context);
-      const matchResult = userId
-        ? await findClientMatch(userId, invoice.clientName)
-        : { type: "none", client: null, score: 0 };
       console.log(
-        `✅ Parsed for: ${invoice.clientName} | Intent: ${invoice.intent} | Match: ${matchResult.type}`
+        `✅ Agent: ${result.intent} | ${result.parsedInvoice?.clientName}`
       );
-      res
-        .status(200)
-        .json({ success: true, isMultiple: false, invoice, matchResult });
+      res.status(200).json({
+        success: true,
+        isMultiple: false,
+        invoice: result.parsedInvoice,
+        matchResult: result.matchResult,
+      });
     }
   } catch (err) {
-    console.error("❌ Invoice parsing failed:", err);
+    console.error("❌ Agent failed:", err);
     res
       .status(500)
       .json({ error: "Failed to parse invoice. Please try again." });
@@ -104,8 +68,20 @@ export async function saveDraftInvoice(
     lineItems,
     paymentTermsDays,
     gstPercent,
-    subtotal,
+    gstType,
+    cgstPercent,
+    sgstPercent,
+    igstPercent,
+    cgstAmount,
+    sgstAmount,
+    igstAmount,
     gstAmount,
+    discountType,
+    discountValue,
+    discountAmount,
+    notes,
+    subtotal,
+    taxableAmount,
     total,
     originalPrompt,
     invoiceDate,
@@ -119,12 +95,12 @@ export async function saveDraftInvoice(
   }
 
   try {
-    // ── Idempotency check — same key = same request, return existing ──
+    // ── Idempotency check ──
     if (idempotencyKey) {
       const existing = await Invoice.findOne({ userId, idempotencyKey });
       if (existing) {
         console.log(
-          `⚠️ Idempotent request — returning existing: ${existing.invoiceNumber}`
+          `⚠️ Idempotent — returning existing: ${existing.invoiceNumber}`
         );
         res
           .status(200)
@@ -135,9 +111,8 @@ export async function saveDraftInvoice(
 
     const invoiceNumber = await generateInvoiceNumber();
     const terms = paymentTermsDays || 15;
-    const resolvedInvoiceDate = invoiceDate
-      ? new Date(invoiceDate)
-      : new Date();
+    const resolvedInvoiceDate =
+      invoiceDate && invoiceDate !== "" ? new Date(invoiceDate) : new Date();
     const resolvedDueDate = new Date(
       resolvedInvoiceDate.getTime() + terms * 24 * 60 * 60 * 1000
     );
@@ -150,7 +125,7 @@ export async function saveDraftInvoice(
             year: "numeric",
           });
 
-    // ── Similar invoice warning — same client + same month + confirmed ──
+    // ── Similar invoice warning ──
     const similar = await Invoice.findOne({
       userId,
       clientName,
@@ -165,9 +140,21 @@ export async function saveDraftInvoice(
       clientId: clientId || "",
       lineItems: lineItems || [],
       paymentTermsDays: terms,
-      gstPercent,
+      gstPercent: gstPercent || 18,
+      gstType: gstType || "CGST_SGST",
+      cgstPercent: cgstPercent || 9,
+      sgstPercent: sgstPercent || 9,
+      igstPercent: igstPercent || 0,
+      cgstAmount: cgstAmount || 0,
+      sgstAmount: sgstAmount || 0,
+      igstAmount: igstAmount || 0,
+      gstAmount: gstAmount || 0,
+      discountType: discountType || "none",
+      discountValue: discountValue || 0,
+      discountAmount: discountAmount || 0,
+      notes: notes || "",
       subtotal,
-      gstAmount,
+      taxableAmount: taxableAmount || subtotal,
       total,
       status: "draft",
       isConfirmed: false,
@@ -179,11 +166,7 @@ export async function saveDraftInvoice(
       idempotencyKey: idempotencyKey || null,
     });
 
-    console.log(
-      `✅ Draft saved: ${invoiceNumber} for ${clientName}${
-        similar ? " (similar exists)" : ""
-      }`
-    );
+    console.log(`✅ Draft saved: ${invoiceNumber} for ${clientName}`);
 
     res.status(201).json({
       success: true,
@@ -223,10 +206,17 @@ export async function confirmInvoice(
       { new: true }
     );
 
-    console.log(`✅ Invoice confirmed: ${updated?.invoiceNumber}`);
+    console.log(`✅ Confirmed: ${updated?.invoiceNumber}`);
+
+    // ── Embed in background ──
+    embedInvoice(id).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.warn(`⚠️ Embedding failed for ${id}:`, message);
+    });
+
     res.status(200).json({ success: true, invoice: updated });
   } catch (err) {
-    console.error("❌ Confirm invoice error:", err);
+    console.error("❌ Confirm error:", err);
     res.status(500).json({ error: "Failed to confirm invoice" });
   }
 }
@@ -237,7 +227,6 @@ export async function getUserInvoices(
   res: Response
 ): Promise<void> {
   const userId = req.headers["x-clerk-id"] as string;
-
   if (!userId) {
     res.status(400).json({ error: "Missing user ID" });
     return;
@@ -265,7 +254,6 @@ export async function updateInvoice(
       res.status(404).json({ error: "Invoice not found" });
       return;
     }
-
     if (invoice.status === "paid") {
       res.status(403).json({ error: "Paid invoices cannot be edited" });
       return;
@@ -284,6 +272,7 @@ export async function updateInvoice(
       return;
     }
 
+    // ── Full edit for drafts ──
     const updated = await Invoice.findByIdAndUpdate(
       id,
       {
@@ -291,22 +280,75 @@ export async function updateInvoice(
         lineItems: req.body.lineItems,
         paymentTermsDays: req.body.paymentTermsDays,
         gstPercent: req.body.gstPercent,
-        subtotal: req.body.subtotal,
+        gstType: req.body.gstType,
+        cgstPercent: req.body.cgstPercent,
+        sgstPercent: req.body.sgstPercent,
+        igstPercent: req.body.igstPercent,
+        cgstAmount: req.body.cgstAmount,
+        sgstAmount: req.body.sgstAmount,
+        igstAmount: req.body.igstAmount,
         gstAmount: req.body.gstAmount,
+        discountType: req.body.discountType,
+        discountValue: req.body.discountValue,
+        discountAmount: req.body.discountAmount,
+        notes: req.body.notes,
+        subtotal: req.body.subtotal,
+        taxableAmount: req.body.taxableAmount,
         total: req.body.total,
-        dueDate: req.body.dueDate,
-        status: req.body.status,
         invoiceDate: req.body.invoiceDate,
         invoiceMonth: req.body.invoiceMonth,
+        dueDate: req.body.dueDate,
+        status: req.body.status,
       },
       { new: true }
     );
 
-    console.log(`✅ Invoice updated: ${updated?.invoiceNumber}`);
+    console.log(`✅ Updated: ${updated?.invoiceNumber}`);
     res.status(200).json({ success: true, invoice: updated });
   } catch (err) {
-    console.error("❌ Update invoice error:", err);
+    console.error("❌ Update error:", err);
     res.status(500).json({ error: "Failed to update invoice" });
+  }
+}
+
+// ── Get client invoice history (for RAG/memory mode) ──
+export async function getClientHistory(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const { clientName } = req.params;
+  const userId = req.headers["x-clerk-id"] as string;
+
+  if (!userId || !clientName) {
+    res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+
+  try {
+    // Confirmed first, fall back to drafts
+    let invoices = await Invoice.find({
+      userId,
+      clientName: { $regex: new RegExp(`^${clientName}$`, "i") },
+      isConfirmed: true,
+    })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    if (invoices.length === 0) {
+      invoices = await Invoice.find({
+        userId,
+        clientName: { $regex: new RegExp(`^${clientName}$`, "i") },
+      })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean();
+    }
+
+    res.status(200).json({ success: true, invoices });
+  } catch (err) {
+    console.error("❌ Client history error:", err);
+    res.status(500).json({ error: "Failed to fetch client history" });
   }
 }
 
@@ -316,7 +358,6 @@ export async function getDashboardStats(
   res: Response
 ): Promise<void> {
   const clerkId = req.headers["x-clerk-id"] as string;
-
   if (!clerkId) {
     res.status(400).json({ error: "Missing clerk ID" });
     return;
@@ -385,17 +426,16 @@ export async function removeInvoice(
   res: Response
 ): Promise<void> {
   const { id } = req.params;
-
   try {
     const invoice = await Invoice.findByIdAndDelete(id);
     if (!invoice) {
       res.status(404).json({ error: "Invoice not found" });
       return;
     }
-    console.log(`✅ Invoice deleted: ${invoice.invoiceNumber}`);
+    console.log(`✅ Deleted: ${invoice.invoiceNumber}`);
     res.status(200).json({ success: true });
   } catch (err) {
-    console.error("❌ Delete invoice error:", err);
+    console.error("❌ Delete error:", err);
     res.status(500).json({ error: "Failed to delete invoice" });
   }
 }
@@ -406,7 +446,6 @@ export async function getInvoiceById(
   res: Response
 ): Promise<void> {
   const { id } = req.params;
-
   try {
     const invoice = await Invoice.findById(id).lean();
     if (!invoice) {
@@ -415,10 +454,7 @@ export async function getInvoiceById(
     }
     res.status(200).json({
       success: true,
-      invoice: {
-        ...invoice,
-        invoiceNumber: invoice.invoiceNumber || null,
-      },
+      invoice: { ...invoice, invoiceNumber: invoice.invoiceNumber || null },
     });
   } catch (err) {
     console.error("❌ Get invoice error:", err);

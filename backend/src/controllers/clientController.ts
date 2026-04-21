@@ -139,73 +139,171 @@ export async function parseClientDetails(
     return;
   }
 
+  // All Indian states/UTs in lowercase for matching
+  const INDIAN_STATES = new Set([
+    "andhra pradesh",
+    "arunachal pradesh",
+    "assam",
+    "bihar",
+    "chhattisgarh",
+    "goa",
+    "gujarat",
+    "haryana",
+    "himachal pradesh",
+    "jharkhand",
+    "karnataka",
+    "kerala",
+    "madhya pradesh",
+    "maharashtra",
+    "manipur",
+    "meghalaya",
+    "mizoram",
+    "nagaland",
+    "odisha",
+    "punjab",
+    "rajasthan",
+    "sikkim",
+    "tamil nadu",
+    "telangana",
+    "tripura",
+    "uttar pradesh",
+    "uttarakhand",
+    "west bengal",
+    "delhi",
+    "new delhi",
+    "jammu and kashmir",
+    "ladakh",
+    "chandigarh",
+    "puducherry",
+    "pondicherry",
+    "andaman and nicobar",
+    "dadra and nagar haveli",
+    "daman and diu",
+    "lakshadweep",
+  ]);
+
+  // Words that indicate this part is address, not city
+  const ADDRESS_KEYWORDS =
+    /sector|block|floor|phase|plot|near|opp|behind|road|street|nagar|vihar|colony|enclave|apartments?|tower|building|house|flat|shop|office|ward|cross|layout|extension|marg|chowk|bazaar|market/i;
+
   try {
-    // ── Step 1: Extract structured fields ──
-    const emailMatch = text.match(/[\w.+-]+@[\w.-]+\.\w+/);
-    const phoneMatch = text.match(/[6-9]\d{9}/);
+    // ── Step 1: Extract structured fields via regex ──
+    const emailMatch = text.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
+    const phoneMatch = text.match(/(?<!\d)[6-9]\d{9}(?!\d)/);
     const gstinMatch = text.match(
       /[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/i
     );
     const pincodeMatch = text.match(/(?<!\d)[1-9][0-9]{5}(?!\d)/);
 
     // ── Step 2: Try labeled format first ──
-    // e.g. "City - Greater Noida", "State: Haryana", "Address - E-24, Sector 85"
-    let labeledCity = text
+    const labeledCity = text
       .match(/[Cc]ity[\s]*[-:]\s*([A-Za-z\s]+?)(?:,|$|\n)/)?.[1]
       ?.trim();
-    let labeledState = text
+    const labeledState = text
       .match(/[Ss]tate[\s]*[-:]\s*([A-Za-z\s]+?)(?:,|$|\n)/)?.[1]
       ?.trim();
-    let labeledAddress = text
-      .match(/[Aa]ddress[\s]*[-:]\s*(.+?)(?:,|$|\n)/)?.[1]
+    const labeledAddress = text
+      .match(/[Aa]ddress[\s]*[-:]\s*(.+?)(?:\n|$)/)?.[1]
       ?.trim();
 
-    // ── Step 3: Plain text fallback ──
-    // Remove email, phone, gstin, pincode from text → remaining is address parts
-    let city = labeledCity;
-    let state = labeledState;
-    let address = labeledAddress;
+    let city: string | undefined = labeledCity;
+    let state: string | undefined = labeledState;
+    let address: string | undefined = labeledAddress;
 
+    // ── Step 3: Plain comma-separated fallback ──
     if (!city || !state) {
       const stripped = text
-        .replace(/[\w.+-]+@[\w.-]+\.\w+/, "") // remove email
-        .replace(/[6-9]\d{9}/, "") // remove phone
-        .replace(/[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/i, "") // remove gstin
-        .replace(/\b[1-9][0-9]{5}\b/, "") // remove pincode
-        .replace(/[Cc]ity[\s]*[-:]\s*/g, "") // remove labels
+        .replace(/[\w.+-]+@[\w.-]+\.\w+/, "")
+        .replace(/[6-9]\d{9}/, "")
+        .replace(/[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}/i, "")
+        .replace(/(?<!\d)[1-9][0-9]{5}(?!\d)/, "")
+        .replace(/[Cc]ity[\s]*[-:]\s*/g, "")
         .replace(/[Ss]tate[\s]*[-:]\s*/g, "")
         .replace(/[Aa]ddress[\s]*[-:]\s*/g, "")
-        .replace(/,\s*,/g, ",") // clean double commas
-        .replace(/^\s*,|,\s*$/g, "") // trim leading/trailing commas
+        .replace(/,\s*,/g, ",")
+        .replace(/^\s*,|,\s*$/g, "")
         .trim();
 
-      // Split into parts by comma
       const parts = stripped
         .split(",")
         .map((p: string) => p.trim())
-        .filter((p: string) => p.length > 1); // filter single chars
+        .filter((p: string) => p.length > 1);
 
       console.log("📍 Address parts:", parts);
 
-      if (parts.length >= 3) {
-        // e.g. ["E-24", "Sector85", "Greater Faridabad", "Haryana"]
-        // address = first parts, city = second to last, state = last
-        address = address || parts.slice(0, parts.length - 2).join(", ");
-        city = city || parts[parts.length - 2];
-        state = state || parts[parts.length - 1];
-      } else if (parts.length === 2) {
-        // e.g. ["Greater Faridabad", "Haryana"]
-        city = city || parts[0];
-        state = state || parts[1];
+      if (parts.length === 0) {
+        // nothing to parse
       } else if (parts.length === 1) {
-        // Only one part — could be city
-        city = city || parts[0];
+        const p = parts[0].toLowerCase();
+        if (INDIAN_STATES.has(p)) {
+          state = state || parts[0];
+        } else {
+          city = city || parts[0];
+        }
+      } else {
+        // Find the last part that is a recognized Indian state
+        let stateIndex = -1;
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (INDIAN_STATES.has(parts[i].toLowerCase())) {
+            stateIndex = i;
+            break;
+          }
+        }
+
+        if (stateIndex !== -1) {
+          // Found a real state
+          state = state || parts[stateIndex];
+
+          // Everything before the state: find city = last non-address part before state
+          const beforeState = parts.slice(0, stateIndex);
+
+          if (beforeState.length === 0) {
+            // Only state provided
+          } else if (beforeState.length === 1) {
+            // Could be city or address
+            if (ADDRESS_KEYWORDS.test(beforeState[0])) {
+              address = address || beforeState[0];
+            } else {
+              city = city || beforeState[0];
+            }
+          } else {
+            // Last part before state = city (if it doesn't look like address)
+            const potentialCity = beforeState[beforeState.length - 1];
+            if (!ADDRESS_KEYWORDS.test(potentialCity)) {
+              city = city || potentialCity;
+              address = address || beforeState.slice(0, -1).join(", ");
+            } else {
+              // Last part looks like address too — all of beforeState is address
+              address = address || beforeState.join(", ");
+            }
+          }
+        } else {
+          // No recognized state found — treat all parts as address
+          address = address || parts.join(", ");
+        }
       }
     }
 
-    // ── Step 4: Clean state — remove pincode if it got mixed in ──
+    // ── Step 4: Clean state — strip digits and extra whitespace ──
     if (state) {
       state = state.replace(/\d+/g, "").replace(/\s+/g, " ").trim();
+      if (!state) state = undefined;
+    }
+
+    // ── Step 5: Try to infer state from text if still missing ──
+    if (!state) {
+      const lowerText = text.toLowerCase();
+
+      const matchedState = Array.from(INDIAN_STATES).find((s) =>
+        lowerText.includes(s)
+      );
+
+      if (matchedState) {
+        state = matchedState
+          .split(" ")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+      }
     }
 
     const parsed = {
@@ -220,7 +318,7 @@ export async function parseClientDetails(
 
     console.log("📧 Parsed client details:", parsed);
 
-    // ── Step 5: Save if email present ──
+    // ── Step 6: Save if email present ──
     if (parsed.email) {
       const client = await Client.findOneAndUpdate(
         { userId, email: parsed.email.toLowerCase().trim() },
@@ -238,22 +336,14 @@ export async function parseClientDetails(
       );
 
       console.log(
-        `✅ Client saved: ${client.name} | city: ${client.city} | state: ${client.state} | address: ${client.address}`
+        `✅ Client saved: ${client.name} | address: ${client.address} | city: ${client.city} | state: ${client.state} | pincode: ${client.pincode}`
       );
-      res.status(200).json({
-        success: true,
-        parsed,
-        client,
-        saved: true,
-      });
+      res.status(200).json({ success: true, parsed, client, saved: true });
     } else {
       console.log(`⚠️ No email found — client not saved`);
-      res.status(200).json({
-        success: true,
-        parsed,
-        client: null,
-        saved: false,
-      });
+      res
+        .status(200)
+        .json({ success: true, parsed, client: null, saved: false });
     }
   } catch (err) {
     console.error("❌ Parse client details error:", err);

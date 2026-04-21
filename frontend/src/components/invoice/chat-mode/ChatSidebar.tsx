@@ -11,7 +11,7 @@ import {
   Clock,
   ArrowLeft,
 } from "lucide-react";
-import { ChatSessionAPI } from "@/lib/chatApi";
+import { ChatSessionAPI } from "@/lib/api/chatApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";

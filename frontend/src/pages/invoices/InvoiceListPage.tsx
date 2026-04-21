@@ -20,7 +20,7 @@ import {
   deleteInvoice,
   getUserInvoices,
   updateInvoice,
-} from "@/lib/mockInvoiceParser";
+} from "@/lib/api/invoiceApi";
 import { DeleteInvoiceModal } from "@/components/invoice/modals/DeleteInvoiceModal";
 import { EditInvoiceModal } from "@/components/invoice/modals/EditInvoiceModal";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
@@ -40,20 +40,24 @@ interface Invoice {
   isConfirmed: boolean;
   lineItems?: LineItem[];
   paymentTermsDays?: number;
-  workDescription?: string;
-  quantity?: number;
-  quantityUnit?: string;
-  ratePerUnit?: number;
   gstPercent: number;
-  subtotal: number;
+  gstType?: "IGST" | "CGST_SGST";
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
   gstAmount: number;
+  discountType?: "percent" | "amount" | "none";
+  discountValue?: number;
+  discountAmount?: number;
+  taxableAmount?: number;
+  notes?: string;
+  subtotal: number;
   total: number;
   status: InvoiceStatus;
   createdAt: string;
   dueDate: string;
 }
 
-// ── UI label based on status + isConfirmed ──
 function getDisplayStatus(inv: Invoice): {
   label: string;
   style: string;
@@ -183,13 +187,18 @@ export function InvoiceListPage() {
           lineItems: inv.lineItems || [],
           paymentTermsDays: inv.paymentTermsDays || 15,
           gstPercent: inv.gstPercent,
-          subtotal: inv.subtotal,
+          gstType: inv.gstType,
+          cgstAmount: inv.cgstAmount,
+          sgstAmount: inv.sgstAmount,
+          igstAmount: inv.igstAmount,
           gstAmount: inv.gstAmount,
+          discountType: inv.discountType,
+          discountValue: inv.discountValue,
+          discountAmount: inv.discountAmount,
+          taxableAmount: inv.taxableAmount,
+          notes: inv.notes,
+          subtotal: inv.subtotal,
           total: inv.total,
-          workDescription: inv.workDescription,
-          quantity: inv.quantity,
-          quantityUnit: inv.quantityUnit,
-          ratePerUnit: inv.ratePerUnit,
         },
         inv.invoiceNumber,
         user?.fullName || user?.firstName || "Ledger User"
@@ -394,7 +403,7 @@ export function InvoiceListPage() {
                             <p className="text-xs text-gray-400">
                               {inv.lineItems && inv.lineItems.length > 0
                                 ? inv.lineItems[0].description
-                                : inv.workDescription || "—"}
+                                : "—"}
                             </p>
                           </div>
                         </div>

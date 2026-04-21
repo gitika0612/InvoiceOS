@@ -14,10 +14,9 @@ import {
   AlertTriangle,
   FileText,
 } from "lucide-react";
-import { fetchInvoiceById } from "@/lib/mockInvoiceParser";
+import { fetchInvoiceById, updateInvoice } from "@/lib/api/invoiceApi";
 import { downloadInvoicePDF } from "@/lib/downloadPDF";
 import { EditInvoiceModal } from "@/components/invoice/modals/EditInvoiceModal";
-import { updateInvoice } from "@/lib/mockInvoiceParser";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,13 +29,21 @@ interface Invoice {
   clientName: string;
   lineItems?: LineItem[];
   paymentTermsDays?: number;
-  workDescription?: string;
-  quantity?: number;
-  quantityUnit?: string;
-  ratePerUnit?: number;
   gstPercent: number;
-  subtotal: number;
+  gstType?: "IGST" | "CGST_SGST";
+  cgstPercent?: number;
+  sgstPercent?: number;
+  igstPercent?: number;
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
   gstAmount: number;
+  discountType?: "percent" | "amount" | "none";
+  discountValue?: number;
+  discountAmount?: number;
+  taxableAmount?: number;
+  notes?: string;
+  subtotal: number;
   total: number;
   status: "draft" | "sent" | "paid" | "overdue";
   createdAt: string;
@@ -113,14 +120,22 @@ export function InvoiceViewPage() {
         clientName: invoice.clientName,
         lineItems: invoice.lineItems || [],
         gstPercent: invoice.gstPercent,
+        gstType: invoice.gstType,
+        cgstPercent: invoice.cgstPercent,
+        sgstPercent: invoice.sgstPercent,
+        igstPercent: invoice.igstPercent,
+        cgstAmount: invoice.cgstAmount,
+        sgstAmount: invoice.sgstAmount,
+        igstAmount: invoice.igstAmount,
+        gstAmount: invoice.gstAmount,
+        discountType: invoice.discountType,
+        discountValue: invoice.discountValue,
+        discountAmount: invoice.discountAmount,
+        taxableAmount: invoice.taxableAmount,
+        notes: invoice.notes,
         paymentTermsDays: invoice.paymentTermsDays || 15,
         subtotal: invoice.subtotal,
-        gstAmount: invoice.gstAmount,
         total: invoice.total,
-        workDescription: invoice.workDescription,
-        quantity: invoice.quantity,
-        quantityUnit: invoice.quantityUnit,
-        ratePerUnit: invoice.ratePerUnit,
       },
       invoice.invoiceNumber,
       user?.fullName || "Ledger User"
@@ -163,7 +178,6 @@ export function InvoiceViewPage() {
     : null;
   const isDraft = invoice.status === "draft";
   const isPaid = invoice.status === "paid";
-  const hasLineItems = invoice.lineItems && invoice.lineItems.length > 0;
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -341,64 +355,38 @@ export function InvoiceViewPage() {
                   </div>
                 </div>
 
-                {hasLineItems ? (
-                  invoice.lineItems!.map((item, index) => (
-                    <div
-                      key={index}
-                      className="grid grid-cols-12 gap-4 px-4 py-4 border-b border-gray-100"
-                    >
-                      <div className="col-span-5">
-                        <p className="text-sm font-semibold text-gray-900">
-                          {item.description}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          Professional Services
-                        </p>
-                      </div>
-                      <div className="col-span-2 text-center">
-                        <p className="text-sm text-gray-600">
-                          {item.quantity} {item.unit}
-                        </p>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <p className="text-sm text-gray-600">
-                          {formatINR(item.rate)}
-                        </p>
-                      </div>
-                      <div className="col-span-3 text-right">
-                        <p className="text-sm font-bold text-gray-900">
-                          {formatINR(item.amount)}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="grid grid-cols-12 gap-4 px-4 py-4 border-b border-gray-100">
+                {invoice.lineItems?.map((item, index) => (
+                  <div
+                    key={index}
+                    className="grid grid-cols-12 gap-4 px-4 py-4 border-b border-gray-100"
+                  >
                     <div className="col-span-5">
                       <p className="text-sm font-semibold text-gray-900">
-                        {invoice.workDescription}
+                        {item.description}
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Professional Services
-                      </p>
+                      {item.hsnSacCode && (
+                        <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                          {item.hsnSacCode}
+                        </p>
+                      )}
                     </div>
                     <div className="col-span-2 text-center">
                       <p className="text-sm text-gray-600">
-                        {invoice.quantity} {invoice.quantityUnit}
+                        {item.quantity} {item.unit}
                       </p>
                     </div>
                     <div className="col-span-2 text-right">
                       <p className="text-sm text-gray-600">
-                        {formatINR(invoice.ratePerUnit || 0)}
+                        {formatINR(item.rate)}
                       </p>
                     </div>
                     <div className="col-span-3 text-right">
                       <p className="text-sm font-bold text-gray-900">
-                        {formatINR(invoice.subtotal)}
+                        {formatINR(item.amount)}
                       </p>
                     </div>
                   </div>
-                )}
+                ))}
               </div>
 
               {/* Totals */}
@@ -410,14 +398,70 @@ export function InvoiceViewPage() {
                       {formatINR(invoice.subtotal)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">
-                      GST ({invoice.gstPercent}%)
-                    </span>
-                    <span className="text-gray-700 font-medium">
-                      {formatINR(invoice.gstAmount)}
-                    </span>
-                  </div>
+
+                  {invoice.discountType &&
+                    invoice.discountType !== "none" &&
+                    (invoice.discountValue || 0) > 0 && (
+                      <div className="flex justify-between text-sm text-emerald-600">
+                        <span>
+                          Discount
+                          {invoice.discountType === "percent"
+                            ? ` (${invoice.discountValue}%)`
+                            : ""}
+                        </span>
+                        <span className="font-medium">
+                          − {formatINR(invoice.discountAmount || 0)}
+                        </span>
+                      </div>
+                    )}
+
+                  {invoice.discountType &&
+                    invoice.discountType !== "none" &&
+                    (invoice.discountValue || 0) > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Taxable Amount</span>
+                        <span className="text-gray-700 font-medium">
+                          {formatINR(invoice.taxableAmount || invoice.subtotal)}
+                        </span>
+                      </div>
+                    )}
+
+                  {(invoice.gstType || "CGST_SGST") === "CGST_SGST" ? (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">
+                          CGST ({invoice.cgstPercent || invoice.gstPercent / 2}
+                          %)
+                        </span>
+                        <span className="text-gray-700 font-medium">
+                          {formatINR(
+                            invoice.cgstAmount || invoice.gstAmount / 2
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">
+                          SGST ({invoice.sgstPercent || invoice.gstPercent / 2}
+                          %)
+                        </span>
+                        <span className="text-gray-700 font-medium">
+                          {formatINR(
+                            invoice.sgstAmount || invoice.gstAmount / 2
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">
+                        IGST ({invoice.igstPercent || invoice.gstPercent}%)
+                      </span>
+                      <span className="text-gray-700 font-medium">
+                        {formatINR(invoice.igstAmount || invoice.gstAmount)}
+                      </span>
+                    </div>
+                  )}
+
                   {invoice.paymentTermsDays && (
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Payment Terms</span>
@@ -426,6 +470,7 @@ export function InvoiceViewPage() {
                       </span>
                     </div>
                   )}
+
                   <Separator className="my-2" />
                   <div
                     className="flex justify-between items-center px-4 py-3 rounded-xl"
@@ -443,6 +488,18 @@ export function InvoiceViewPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Notes */}
+              {invoice.notes && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                    Notes
+                  </p>
+                  <p className="text-xs text-gray-600 whitespace-pre-wrap">
+                    {invoice.notes}
+                  </p>
+                </div>
+              )}
 
               {/* Footer */}
               <div className="mt-6 pt-4 border-t border-gray-100">

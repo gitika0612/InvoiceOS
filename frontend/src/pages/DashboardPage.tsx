@@ -20,7 +20,7 @@ import {
   X,
   AlertTriangle,
 } from "lucide-react";
-import { fetchDashboardStats } from "@/lib/mockInvoiceParser";
+import { fetchDashboardStats } from "@/lib/api/invoiceApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";

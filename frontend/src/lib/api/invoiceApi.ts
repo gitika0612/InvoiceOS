@@ -1,6 +1,6 @@
-import api from "@/lib/api";
+import api from "@/lib/api/api";
 import { ParsedInvoice } from "@/components/invoice/InvoicePreviewCard";
-import { ClientAPI } from "@/lib/clientApi";
+import { ClientAPI } from "@/lib/api/clientApi";
 
 export type MatchType = "exact" | "partial" | "none";
 
@@ -34,12 +34,14 @@ export interface SavedDraft {
 export async function parseInvoiceWithAI(
   prompt: string,
   userId?: string,
-  sessionContext?: string
+  sessionContext?: string,
+  memoryContext?: string
 ): Promise<ParseResult> {
   const response = await api.post("/invoices/parse", {
     prompt,
     userId,
     sessionContext,
+    memoryContext,
   });
   return {
     isMultiple: response.data.isMultiple,
@@ -56,7 +58,6 @@ export async function saveDraftInvoice(
   originalPrompt: string,
   clientId?: string
 ): Promise<SavedDraft> {
-  // ── Generate unique idempotency key per save attempt ──
   const idempotencyKey = `${userId}_${invoice.clientName}_${
     invoice.total
   }_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -67,8 +68,20 @@ export async function saveDraftInvoice(
     lineItems: invoice.lineItems,
     paymentTermsDays: invoice.paymentTermsDays,
     gstPercent: invoice.gstPercent,
-    subtotal: invoice.subtotal,
+    gstType: invoice.gstType || "CGST_SGST",
+    cgstPercent: invoice.cgstPercent,
+    sgstPercent: invoice.sgstPercent,
+    igstPercent: invoice.igstPercent,
+    cgstAmount: invoice.cgstAmount,
+    sgstAmount: invoice.sgstAmount,
+    igstAmount: invoice.igstAmount,
     gstAmount: invoice.gstAmount,
+    discountType: invoice.discountType || "none",
+    discountValue: invoice.discountValue || 0,
+    discountAmount: invoice.discountAmount || 0,
+    notes: invoice.notes || "",
+    subtotal: invoice.subtotal,
+    taxableAmount: invoice.taxableAmount || invoice.subtotal,
     total: invoice.total,
     originalPrompt,
     invoiceDate: invoice.invoiceDate,
@@ -76,6 +89,7 @@ export async function saveDraftInvoice(
     clientId: clientId || "",
     idempotencyKey,
   });
+
   return {
     invoiceNumber: response.data.invoice.invoiceNumber,
     isDuplicate: response.data.isDuplicate || false,
@@ -91,15 +105,6 @@ export async function confirmInvoice(
 ): Promise<{ invoiceNumber: string }> {
   const response = await api.patch(`/invoices/${invoiceId}/confirm`);
   return { invoiceNumber: response.data.invoice.invoiceNumber };
-}
-
-export async function saveInvoice(
-  invoice: ParsedInvoice,
-  userId: string,
-  originalPrompt: string,
-  clientId?: string
-): Promise<SavedDraft> {
-  return saveDraftInvoice(invoice, userId, originalPrompt, clientId);
 }
 
 export async function updateInvoice(
@@ -131,4 +136,14 @@ export async function fetchInvoiceById(id: string) {
   const response = await api.get(`/invoices/${id}`);
   if (!response.data.invoice) throw new Error("Invoice not found");
   return response.data.invoice;
+}
+
+export async function fetchClientHistory(clientName: string, userId: string) {
+  const response = await api.get(
+    `/invoices/client-history/${encodeURIComponent(clientName)}`,
+    {
+      headers: { "x-clerk-id": userId },
+    }
+  );
+  return response.data.invoices;
 }

@@ -375,40 +375,6 @@ export function InvoicePanelFilters({
           )}
         </div>
       </div>
-
-      {/* Active filter pills */}
-      {/* {(selectedClients.size > 0 || selectedMonths.size > 0) && (
-        <div className="flex flex-wrap gap-1.5">
-          {[...selectedClients].map((c) => (
-            <span
-              key={c}
-              className="flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-semibold rounded-full border border-indigo-100"
-            >
-              {c}
-              <button
-                onClick={() => onToggleClient(c)}
-                className="hover:text-indigo-800"
-              >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            </span>
-          ))}
-          {[...selectedMonths].map((m) => (
-            <span
-              key={m}
-              className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 text-[10px] font-semibold rounded-full border border-blue-100"
-            >
-              {m}
-              <button
-                onClick={() => onToggleMonth(m)}
-                className="hover:text-blue-800"
-              >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )} */}
     </div>
   );
 }

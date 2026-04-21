@@ -1,4 +1,4 @@
-import api from "@/lib/api";
+import api from "@/lib/api/api";
 
 export interface ClientAPI {
   _id: string;
@@ -33,6 +33,7 @@ export interface ParsedClientDetails {
   address?: string;
   city?: string;
   state?: string;
+  pincode?: string;
 }
 
 export interface ParseClientDetailsResult {

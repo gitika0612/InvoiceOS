@@ -344,75 +344,106 @@ export function InvoicePDF({
             </View>
           </View>
 
-          {invoice.lineItems && invoice.lineItems.length > 0 ? (
-            invoice.lineItems.map((item, index) => (
-              <View key={index} style={styles.tableRow}>
-                <View style={styles.tableColDesc}>
-                  <Text style={styles.tableBodyBold}>{item.description}</Text>
-                  <Text
-                    style={[
-                      styles.tableBodyText,
-                      { color: "#9CA3AF", marginTop: 2 },
-                    ]}
-                  >
-                    {item.quantity} {item.unit}
-                  </Text>
-                </View>
-                <View style={styles.tableColQty}>
-                  <Text style={[styles.tableBodyText, { textAlign: "center" }]}>
-                    {item.quantity}
-                  </Text>
-                </View>
-                <View style={styles.tableColRate}>
-                  <Text style={[styles.tableBodyText, { textAlign: "right" }]}>
-                    {formatINR(item.rate)}
-                  </Text>
-                </View>
-                <View style={styles.tableColAmount}>
-                  <Text style={[styles.tableBodyBold, { textAlign: "right" }]}>
-                    {formatINR(item.amount)}
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <View style={styles.tableRow}>
+          {invoice.lineItems?.map((item, index) => (
+            <View key={index} style={styles.tableRow}>
               <View style={styles.tableColDesc}>
-                <Text style={styles.tableBodyBold}>
-                  {invoice.workDescription || "Professional Services"}
+                <Text style={styles.tableBodyBold}>{item.description}</Text>
+                <Text
+                  style={[
+                    styles.tableBodyText,
+                    { color: "#9CA3AF", marginTop: 2 },
+                  ]}
+                >
+                  {item.quantity} {item.unit}
                 </Text>
               </View>
               <View style={styles.tableColQty}>
                 <Text style={[styles.tableBodyText, { textAlign: "center" }]}>
-                  {invoice.quantity} {invoice.quantityUnit}
+                  {item.quantity}
                 </Text>
               </View>
               <View style={styles.tableColRate}>
                 <Text style={[styles.tableBodyText, { textAlign: "right" }]}>
-                  {formatINR(invoice.ratePerUnit || 0)}
+                  {formatINR(item.rate)}
                 </Text>
               </View>
               <View style={styles.tableColAmount}>
                 <Text style={[styles.tableBodyBold, { textAlign: "right" }]}>
-                  {formatINR(invoice.subtotal)}
+                  {formatINR(item.amount)}
                 </Text>
               </View>
             </View>
-          )}
+          ))}
         </View>
 
+        {/* ── Totals ── */}
         {/* ── Totals ── */}
         <View style={styles.totalsBox}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Subtotal</Text>
             <Text style={styles.totalValue}>{formatINR(invoice.subtotal)}</Text>
           </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>GST ({invoice.gstPercent}%)</Text>
-            <Text style={styles.totalValue}>
-              {formatINR(invoice.gstAmount)}
-            </Text>
-          </View>
+
+          {/* Discount */}
+          {invoice.discountType &&
+            invoice.discountType !== "none" &&
+            (invoice.discountValue || 0) > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>
+                  Discount
+                  {invoice.discountType === "percent"
+                    ? ` (${invoice.discountValue}%)`
+                    : ""}
+                </Text>
+                <Text style={[styles.totalValue, { color: "#059669" }]}>
+                  - {formatINR(invoice.discountAmount || 0)}
+                </Text>
+              </View>
+            )}
+
+          {/* Taxable amount — only show if discount applied */}
+          {invoice.discountType &&
+            invoice.discountType !== "none" &&
+            (invoice.discountValue || 0) > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Taxable Amount</Text>
+                <Text style={styles.totalValue}>
+                  {formatINR(invoice.taxableAmount || invoice.subtotal)}
+                </Text>
+              </View>
+            )}
+
+          {/* GST split */}
+          {(invoice.gstType || "CGST_SGST") === "CGST_SGST" ? (
+            <>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>
+                  CGST ({invoice.cgstPercent || invoice.gstPercent / 2}%)
+                </Text>
+                <Text style={styles.totalValue}>
+                  {formatINR(invoice.cgstAmount || invoice.gstAmount / 2)}
+                </Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>
+                  SGST ({invoice.sgstPercent || invoice.gstPercent / 2}%)
+                </Text>
+                <Text style={styles.totalValue}>
+                  {formatINR(invoice.sgstAmount || invoice.gstAmount / 2)}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>
+                IGST ({invoice.igstPercent || invoice.gstPercent}%)
+              </Text>
+              <Text style={styles.totalValue}>
+                {formatINR(invoice.igstAmount || invoice.gstAmount)}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.totalDivider} />
           <View style={styles.grandTotalRow}>
             <Text style={styles.grandTotalLabel}>Total Due</Text>
@@ -421,6 +452,32 @@ export function InvoicePDF({
             </Text>
           </View>
         </View>
+
+        {/* ── Notes ── */}
+        {invoice.notes && (
+          <View
+            style={{
+              backgroundColor: "#F9FAFB",
+              borderRadius: 6,
+              padding: 12,
+              marginBottom: 24,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 9,
+                fontFamily: "Helvetica-Bold",
+                color: "#9CA3AF",
+                marginBottom: 4,
+              }}
+            >
+              NOTES
+            </Text>
+            <Text style={{ fontSize: 9, color: "#374151" }}>
+              {invoice.notes}
+            </Text>
+          </View>
+        )}
 
         {/* ── Bank Details ── */}
         {hasBankDetails && (

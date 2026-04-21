@@ -1,6 +1,6 @@
 import { useAuth as useClerkAuth, useUser } from "@clerk/clerk-react";
 import { useCallback } from "react";
-import api from "@/lib/api";
+import api from "@/lib/api/api";
 
 export interface UserProfile {
   _id?: string;
