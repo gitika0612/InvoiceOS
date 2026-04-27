@@ -10,16 +10,34 @@ export interface MatchResult {
   score: number;
 }
 
-export interface ParseResult {
-  isMultiple: boolean;
-  invoice?: ParsedInvoice & {
-    intent?: "new" | "edit" | "copy";
-    targetInvoiceRef?: string;
-    changedFields?: string[];
-  };
+export type AgentAction =
+  | "created"
+  | "edited"
+  | "copied"
+  | "multi_created"
+  | "needs_client"
+  | "ambiguous"
+  | "ambiguous"
+  | "not_found"
+  | "unclear"
+  | "info";
+
+// The unified response from the AI agent
+export interface AgentResult {
+  action: AgentAction;
+  message: string;
+  invoice?: ParsedInvoice | null;
   invoices?: ParsedInvoice[];
-  matchResult?: MatchResult;
+  targetRef?: string;
+  changedFields?: string[];
+  warning?: string;
+  matchResult?: MatchResult | null;
   invoicesWithMatch?: { invoice: ParsedInvoice; matchResult: MatchResult }[];
+  splitDetails?: {
+    originalAmount: number;
+    parts: number;
+    amountPerPart: number;
+  };
 }
 
 export interface SavedDraft {
@@ -31,25 +49,22 @@ export interface SavedDraft {
   _id: string;
 }
 
+// Main AI parse endpoint - now returns AgentResult
 export async function parseInvoiceWithAI(
   prompt: string,
   userId?: string,
   sessionContext?: string,
-  memoryContext?: string
-): Promise<ParseResult> {
+  memoryContext?: string,
+  currentInvoice?: ParsedInvoice | null // For edit context
+): Promise<AgentResult> {
   const response = await api.post("/invoices/parse", {
     prompt,
     userId,
     sessionContext,
     memoryContext,
+    currentInvoice,
   });
-  return {
-    isMultiple: response.data.isMultiple,
-    invoice: response.data.invoice,
-    invoices: response.data.invoices,
-    matchResult: response.data.matchResult,
-    invoicesWithMatch: response.data.invoicesWithMatch,
-  };
+  return response.data as AgentResult;
 }
 
 export async function saveDraftInvoice(
@@ -141,9 +156,7 @@ export async function fetchInvoiceById(id: string) {
 export async function fetchClientHistory(clientName: string, userId: string) {
   const response = await api.get(
     `/invoices/client-history/${encodeURIComponent(clientName)}`,
-    {
-      headers: { "x-clerk-id": userId },
-    }
+    { headers: { "x-clerk-id": userId } }
   );
   return response.data.invoices;
 }

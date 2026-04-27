@@ -1,9 +1,11 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { InvoiceAgentState } from "../state";
-import { invoiceSchema } from "../schemas/invoiceSchema";
+import { InvoiceAgentState, AgentResult } from "../state";
+import { ParsedInvoice, invoiceSchema } from "../schemas/invoiceSchema";
 import { INVOICE_PROMPT } from "../prompts/invoicePrompt";
 import { findClientMatch } from "../../lib/clientMatcher";
+import { recalculateTotals, formatINR } from "../utils/invoiceUtils";
+import { buildCurrencyContext } from "../utils/currencyService";
 
 export async function generatorNode(
   state: InvoiceAgentState
@@ -21,8 +23,8 @@ export async function generatorNode(
     month: "long",
     year: "numeric",
   });
-
   const currentDate = new Date().toISOString().split("T")[0];
+  const currencyRates = await buildCurrencyContext();
 
   const formatted = await template.format({
     prompt: state.prompt,
@@ -30,18 +32,118 @@ export async function generatorNode(
     memoryContext: state.memoryContext,
     currentMonth,
     currentDate,
+    currencyRates,
   });
 
-  const parsedInvoice = await structured.invoke(formatted);
+  const raw = (await structured.invoke(formatted)) as ParsedInvoice;
+  const finalInvoice = recalculateTotals(raw);
 
-  // ── Find client match ──
+  // ── SPLIT INVOICE ──
+  if (state.isSplit && state.splitCount > 1) {
+    const parts = state.splitCount;
+    const baseTotal = finalInvoice.total;
+    const amountPerPart = Math.round(baseTotal / parts);
+
+    const invoices: ParsedInvoice[] = Array.from({ length: parts }, (_, i) => {
+      const splitItems = finalInvoice.lineItems.map((item) => ({
+        ...item,
+        rate: Math.round(item.rate / parts),
+        amount: Math.round(item.amount / parts),
+      }));
+      return recalculateTotals({
+        ...finalInvoice,
+        lineItems: splitItems,
+        notes: `Split invoice ${i + 1} of ${parts}${
+          finalInvoice.notes ? ` — ${finalInvoice.notes}` : ""
+        }`,
+      });
+    });
+
+    const matchResult = state.userId
+      ? await findClientMatch(state.userId, finalInvoice.clientName)
+      : { type: "none" as const, client: null, score: 0 };
+
+    const invoicesWithMatch = invoices.map((inv) => ({
+      invoice: inv,
+      matchResult,
+    }));
+
+    return {
+      parsedInvoice: finalInvoice,
+      parsedInvoices: invoices,
+      invoicesWithMatch,
+      matchResult,
+      agentResult: {
+        action: "multi_created",
+        message: `Done! Split **${formatINR(
+          baseTotal
+        )}** into **${parts} equal invoices** of **${formatINR(
+          amountPerPart
+        )}** each for **${
+          finalInvoice.clientName
+        }**. Review them in the side panel.`,
+        invoices,
+        invoicesWithMatch,
+        splitDetails: { originalAmount: baseTotal, parts, amountPerPart },
+      },
+    };
+  }
+
+  // ── SINGLE INVOICE ──
   const matchResult = state.userId
-    ? await findClientMatch(state.userId, parsedInvoice.clientName)
+    ? await findClientMatch(state.userId, finalInvoice.clientName)
     : { type: "none" as const, client: null, score: 0 };
 
+  const isCreditNote = finalInvoice.notes
+    ?.toLowerCase()
+    .includes("credit note");
+  const isAdvance = finalInvoice.lineItems.some((i) =>
+    i.description.toLowerCase().includes("advance")
+  );
+  const isMilestone = finalInvoice.lineItems.some((i) =>
+    i.description.toLowerCase().includes("milestone")
+  );
+  const isProRata = finalInvoice.lineItems.some((i) =>
+    i.description.toLowerCase().includes("pro-rata")
+  );
+
+  const typeLabel = isCreditNote
+    ? "Credit note"
+    : isAdvance
+    ? "Advance payment invoice"
+    : isMilestone
+    ? "Milestone invoice"
+    : isProRata
+    ? "Pro-rata invoice"
+    : "Invoice";
+
+  let action: AgentResult["action"];
+  let message: string;
+
+  if (matchResult.type === "exact") {
+    action = "created";
+    message = `Got it! Using **${
+      matchResult.client?.name
+    }**'s saved details ✓\n\n${typeLabel} of **${formatINR(
+      finalInvoice.total
+    )}** ready for **${
+      finalInvoice.clientName
+    }**. Review it in the side panel.`;
+  } else if (matchResult.type === "partial") {
+    action = "needs_client";
+    message = `I found a saved client named **${matchResult.client?.name}**.\nIs **${finalInvoice.clientName}** the same client? Reply **same** or **different**.`;
+  } else {
+    action = "needs_client";
+    message = `${typeLabel} of **${formatINR(
+      finalInvoice.total
+    )}** ready for **${
+      finalInvoice.clientName
+    }**! 🎉\n\nTo complete the invoice, share their contact details:\n\n**Email** *(required)*\n*(Optional: Address, City, State, Phone, GSTIN)*\n\n💡 \`john@gmail.com, 42 MG Road, Pune, Maharashtra\`\n\nOr say **skip** to create without client details.`;
+  }
+
   return {
-    parsedInvoice,
+    parsedInvoice: finalInvoice,
     matchResult,
-    responseMessage: `Here's the invoice for **${parsedInvoice.clientName}**. Review it in the panel on the right.`,
+    agentResult: { action, message, invoice: finalInvoice, matchResult },
   };
 }

@@ -4,11 +4,14 @@ import { Invoice } from "../models/Invoice";
 import { generateInvoiceNumber } from "../lib/invoiceHelper";
 import { embedInvoice } from "../lib/embeddingService";
 import { runInvoiceAgent } from "../agents/invoiceAgent";
+import { ParsedInvoice } from "../agents/schemas/invoiceSchema";
 
+// ── Parse invoice (main AI endpoint) ──
 export async function parseInvoice(req: Request, res: Response): Promise<void> {
-  const { prompt, userId, sessionContext } = req.body;
+  const { prompt, userId, sessionContext, memoryContext, currentInvoice } =
+    req.body;
 
-  if (!prompt || typeof prompt !== "string" || prompt.trim().length < 5) {
+  if (!prompt || typeof prompt !== "string" || prompt.trim().length < 3) {
     res
       .status(400)
       .json({ error: "Please provide a valid invoice description" });
@@ -16,13 +19,16 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    console.log(`🤖 Agent parsing: "${prompt}"`);
+    console.log(`🤖 Agent: "${prompt.slice(0, 80)}"`);
 
     const result = await runInvoiceAgent({
       prompt,
       userId: userId || "",
       sessionId: "",
       sessionContext: sessionContext || "No existing invoices in this session.",
+      memoryContext:
+        memoryContext || "No past invoice history for this client.",
+      parsedInvoice: currentInvoice || null,
     });
 
     if (result.error) {
@@ -30,24 +36,26 @@ export async function parseInvoice(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    if (result.isMultiple && result.invoicesWithMatch.length > 0) {
-      console.log(`✅ Agent: ${result.invoicesWithMatch.length} invoices`);
-      res.status(200).json({
-        success: true,
-        isMultiple: true,
-        invoicesWithMatch: result.invoicesWithMatch,
-      });
-    } else {
-      console.log(
-        `✅ Agent: ${result.intent} | ${result.parsedInvoice?.clientName}`
-      );
-      res.status(200).json({
-        success: true,
-        isMultiple: false,
-        invoice: result.parsedInvoice,
-        matchResult: result.matchResult,
-      });
+    // Always return agentResult — frontend reads action to decide what to do
+    const agentResult = result.agentResult;
+
+    if (!agentResult) {
+      res.status(500).json({ error: "Agent returned no result" });
+      return;
     }
+
+    console.log(
+      `✅ Agent action: ${agentResult.action} | ${
+        agentResult.invoice?.clientName ||
+        agentResult.invoices?.length + " invoices" ||
+        ""
+      }`
+    );
+
+    res.status(200).json({
+      success: true,
+      ...agentResult,
+    });
   } catch (err) {
     console.error("❌ Agent failed:", err);
     res
@@ -95,7 +103,7 @@ export async function saveDraftInvoice(
   }
 
   try {
-    // ── Idempotency check ──
+    // Idempotency check
     if (idempotencyKey) {
       const existing = await Invoice.findOne({ userId, idempotencyKey });
       if (existing) {
@@ -125,7 +133,6 @@ export async function saveDraftInvoice(
             year: "numeric",
           });
 
-    // ── Similar invoice warning ──
     const similar = await Invoice.findOne({
       userId,
       clientName,
@@ -192,28 +199,22 @@ export async function confirmInvoice(
   res: Response
 ): Promise<void> {
   const { id } = req.params;
-
   try {
     const invoice = await Invoice.findById(id);
     if (!invoice) {
       res.status(404).json({ error: "Invoice not found" });
       return;
     }
-
     const updated = await Invoice.findByIdAndUpdate(
       id,
       { isConfirmed: true },
       { new: true }
     );
-
     console.log(`✅ Confirmed: ${updated?.invoiceNumber}`);
-
-    // ── Embed in background ──
     embedInvoice(id).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.warn(`⚠️ Embedding failed for ${id}:`, message);
     });
-
     res.status(200).json({ success: true, invoice: updated });
   } catch (err) {
     console.error("❌ Confirm error:", err);
@@ -231,7 +232,6 @@ export async function getUserInvoices(
     res.status(400).json({ error: "Missing user ID" });
     return;
   }
-
   try {
     const invoices = await Invoice.find({ userId }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, invoices });
@@ -247,7 +247,6 @@ export async function updateInvoice(
   res: Response
 ): Promise<void> {
   const { id } = req.params;
-
   try {
     const invoice = await Invoice.findById(id);
     if (!invoice) {
@@ -272,7 +271,6 @@ export async function updateInvoice(
       return;
     }
 
-    // ── Full edit for drafts ──
     const updated = await Invoice.findByIdAndUpdate(
       id,
       {
@@ -302,7 +300,6 @@ export async function updateInvoice(
       },
       { new: true }
     );
-
     console.log(`✅ Updated: ${updated?.invoiceNumber}`);
     res.status(200).json({ success: true, invoice: updated });
   } catch (err) {
@@ -311,21 +308,18 @@ export async function updateInvoice(
   }
 }
 
-// ── Get client invoice history (for RAG/memory mode) ──
+// ── Get client invoice history ──
 export async function getClientHistory(
   req: Request,
   res: Response
 ): Promise<void> {
   const { clientName } = req.params;
   const userId = req.headers["x-clerk-id"] as string;
-
   if (!userId || !clientName) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
-
   try {
-    // Confirmed first, fall back to drafts
     let invoices = await Invoice.find({
       userId,
       clientName: { $regex: new RegExp(`^${clientName}$`, "i") },
@@ -344,7 +338,6 @@ export async function getClientHistory(
         .limit(5)
         .lean();
     }
-
     res.status(200).json({ success: true, invoices });
   } catch (err) {
     console.error("❌ Client history error:", err);
@@ -362,11 +355,9 @@ export async function getDashboardStats(
     res.status(400).json({ error: "Missing clerk ID" });
     return;
   }
-
   try {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
     const [
       totalInvoices,
       pendingAmount,
@@ -403,7 +394,6 @@ export async function getDashboardStats(
       }),
       Invoice.find({ userId: clerkId }).sort({ createdAt: -1 }).limit(5).lean(),
     ]);
-
     res.status(200).json({
       success: true,
       stats: {

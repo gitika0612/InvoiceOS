@@ -1,5 +1,4 @@
 import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
-import { InvoiceAgentState, initialState } from "./state";
 import { routerNode } from "./nodes/routerNode";
 import { ragNode } from "./nodes/ragNode";
 import { generatorNode } from "./nodes/generatorNode";
@@ -8,18 +7,17 @@ import { copierNode } from "./nodes/copierNode";
 import { multiInvoiceNode } from "./nodes/multiInvoiceNode";
 import { IInvoiceDocument } from "../models/Invoice";
 import { ParsedInvoice } from "./schemas/invoiceSchema";
-import { InvoiceWithMatch, MatchResult, AgentIntent } from "./state";
+import {
+  InvoiceWithMatch,
+  MatchResult,
+  AgentIntent,
+  AgentResult,
+  initialState,
+} from "./state";
 
-// ── Define state schema using Annotation ──
 const AgentStateAnnotation = Annotation.Root({
-  prompt: Annotation<string>({
-    reducer: (x, y) => y ?? x,
-    default: () => "",
-  }),
-  userId: Annotation<string>({
-    reducer: (x, y) => y ?? x,
-    default: () => "",
-  }),
+  prompt: Annotation<string>({ reducer: (x, y) => y ?? x, default: () => "" }),
+  userId: Annotation<string>({ reducer: (x, y) => y ?? x, default: () => "" }),
   sessionId: Annotation<string>({
     reducer: (x, y) => y ?? x,
     default: () => "",
@@ -35,6 +33,22 @@ const AgentStateAnnotation = Annotation.Root({
   isMultiple: Annotation<boolean>({
     reducer: (x, y) => y ?? x,
     default: () => false,
+  }),
+  isSplit: Annotation<boolean>({
+    reducer: (x, y) => y ?? x,
+    default: () => false,
+  }),
+  splitCount: Annotation<number>({
+    reducer: (x, y) => y ?? x,
+    default: () => 1,
+  }),
+  targetRef: Annotation<string>({
+    reducer: (x, y) => y ?? x,
+    default: () => "",
+  }),
+  routerNotes: Annotation<string>({
+    reducer: (x, y) => y ?? x,
+    default: () => "",
   }),
   memoryContext: Annotation<string>({
     reducer: (x, y) => y ?? x,
@@ -60,6 +74,10 @@ const AgentStateAnnotation = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => null,
   }),
+  agentResult: Annotation<AgentResult | null>({
+    reducer: (x, y) => y ?? x,
+    default: () => null,
+  }),
   responseMessage: Annotation<string>({
     reducer: (x, y) => y ?? x,
     default: () => "",
@@ -72,21 +90,18 @@ const AgentStateAnnotation = Annotation.Root({
 
 type AgentState = typeof AgentStateAnnotation.State;
 
-// ── Routing after router node ──
 function routeAfterRouter(state: AgentState): string {
   if (state.isMultiple || state.intent === "multi") return "multiInvoice";
   if (state.intent === "edit") return "editor";
   if (state.intent === "copy") return "copier";
-  return "rag"; // new + default → always through RAG first
+  return "rag"; // new + default → through RAG first
 }
 
-// ── Routing after multi-invoice node ──
 function routeAfterMulti(state: AgentState): string {
   if (!state.isMultiple) return "generator";
   return END;
 }
 
-// ── Build the graph ──
 export function createInvoiceAgent() {
   const graph = new StateGraph(AgentStateAnnotation)
     .addNode("router", routerNode)
@@ -114,7 +129,6 @@ export function createInvoiceAgent() {
   return graph.compile();
 }
 
-// ── Singleton instance ──
 let agentInstance: ReturnType<typeof createInvoiceAgent> | null = null;
 
 export function getInvoiceAgent() {
@@ -124,15 +138,14 @@ export function getInvoiceAgent() {
   return agentInstance;
 }
 
-// ── Main entry point ──
 export async function runInvoiceAgent(input: {
   prompt: string;
   userId: string;
   sessionId: string;
   sessionContext: string;
   memoryContext?: string;
-  parsedInvoice?: ParsedInvoice | null;
-}): Promise<InvoiceAgentState> {
+  parsedInvoice?: ParsedInvoice | null; // Current invoice for edit context
+}): Promise<AgentState> {
   const agent = getInvoiceAgent();
   const result = await agent.invoke({
     ...initialState,
@@ -141,5 +154,5 @@ export async function runInvoiceAgent(input: {
     memoryContext:
       input.memoryContext || "No past invoice history for this client.",
   });
-  return result as InvoiceAgentState;
+  return result as AgentState;
 }

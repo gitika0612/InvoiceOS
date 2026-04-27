@@ -354,7 +354,7 @@ export function DashboardPage() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <Button
-                  onClick={() => navigate("/onboarding")}
+                  onClick={() => navigate("/profile")}
                   className="rounded-xl text-xs bg-amber-600 hover:bg-amber-700 h-8 px-3"
                 >
                   Setup Now

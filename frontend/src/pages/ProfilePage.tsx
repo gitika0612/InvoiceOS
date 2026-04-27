@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   Loader2,
   FileText,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import { useAuth, UserProfile } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -17,18 +19,24 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   INDIAN_STATES,
   profileSchema,
   parseProfileIssues,
   fieldClass,
 } from "@/lib/profileValidation";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const emptyProfile: UserProfile = {
   businessName: "",
@@ -70,6 +78,7 @@ export function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [openStateDropdown, setOpenStateDropdown] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -306,21 +315,53 @@ export function ProfilePage() {
               />
             </FieldWrapper>
             <FieldWrapper label="State" required error={errors.state}>
-              <Select
-                value={profile.state}
-                onValueChange={(val) => handleChange("state", val)}
+              <Popover
+                open={openStateDropdown}
+                onOpenChange={setOpenStateDropdown}
               >
-                <SelectTrigger className={fieldClass(!!errors.state)}>
-                  <SelectValue placeholder="Select State" />
-                </SelectTrigger>
-                <SelectContent>
-                  {INDIAN_STATES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className={`w-full justify-between ${fieldClass(
+                      !!errors.state
+                    )}`}
+                  >
+                    {profile.state || "Select state"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+
+                <PopoverContent className="w-full p-0">
+                  <Command>
+                    <CommandInput placeholder="Search state..." />
+
+                    <CommandEmpty>No state found.</CommandEmpty>
+
+                    <CommandGroup className="max-h-60 overflow-y-auto">
+                      {INDIAN_STATES.map((state) => (
+                        <CommandItem
+                          key={state}
+                          value={state}
+                          onSelect={(currentValue) => {
+                            handleChange("state", currentValue);
+                            setOpenStateDropdown(false);
+                          }}
+                        >
+                          <Check
+                            className={`mr-2 h-4 w-4 ${
+                              profile.state === state
+                                ? "opacity-100"
+                                : "opacity-0"
+                            }`}
+                          />
+                          {state}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </FieldWrapper>
             <FieldWrapper label="Pincode" required error={errors.pincode}>
               <Input

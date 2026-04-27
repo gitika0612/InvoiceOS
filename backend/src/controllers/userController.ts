@@ -14,12 +14,17 @@ export async function syncUser(req: Request, res: Response): Promise<void> {
     const user = await User.findOneAndUpdate(
       { clerkId },
       {
-        email,
-        firstName: firstName || "",
-        lastName: lastName || "",
-        imageUrl: imageUrl || "",
+        $set: {
+          email,
+          firstName: firstName || "",
+          lastName: lastName || "",
+          imageUrl: imageUrl || "",
+        },
+        $setOnInsert: {
+          isOnboarded: false,
+        },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true }
     );
     res.status(200).json({ success: true, user });
   } catch (err) {
@@ -97,23 +102,26 @@ export async function updateProfile(
   } = req.body;
 
   try {
+    const updateData: any = {
+      isOnboarded: true,
+    };
+
+    if (businessName !== undefined) updateData.businessName = businessName;
+    if (gstin !== undefined) updateData.gstin = gstin;
+    if (pan !== undefined) updateData.pan = pan;
+    if (address !== undefined) updateData.address = address;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    if (pincode !== undefined) updateData.pincode = pincode;
+    if (phone !== undefined) updateData.phone = phone;
+    if (bankName !== undefined) updateData.bankName = bankName;
+    if (accountNumber !== undefined) updateData.accountNumber = accountNumber;
+    if (ifscCode !== undefined) updateData.ifscCode = ifscCode;
+    if (upiId !== undefined) updateData.upiId = upiId;
+
     const user = await User.findOneAndUpdate(
       { clerkId },
-      {
-        businessName: businessName || "",
-        gstin: gstin || "",
-        pan: pan || "",
-        address: address || "",
-        city: city || "",
-        state: state || "",
-        pincode: pincode || "",
-        phone: phone || "",
-        bankName: bankName || "",
-        accountNumber: accountNumber || "",
-        ifscCode: ifscCode || "",
-        upiId: upiId || "",
-        isOnboarded: true,
-      },
+      { $set: updateData },
       { new: true }
     );
 

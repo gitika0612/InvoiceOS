@@ -2,10 +2,10 @@ import { z } from "zod";
 
 export const lineItemSchema = z.object({
   description: z.string(),
-  quantity: z.number(),
+  quantity: z.number().positive(),
   unit: z.string(),
-  rate: z.number(),
-  amount: z.number(),
+  rate: z.number().min(0),
+  amount: z.number().min(0),
   hsnSacCode: z
     .string()
     .describe(
@@ -21,23 +21,25 @@ export const invoiceSchema = z.object({
   targetInvoiceRef: z.string(),
   clientName: z.string(),
   lineItems: z.array(lineItemSchema),
-  gstPercent: z.number(),
+  gstPercent: z.number().min(0),
   gstType: z.enum(["IGST", "CGST_SGST"]),
   discountType: z.enum(["percent", "amount", "none"]),
-  discountValue: z.number(),
+  discountValue: z.number().min(0),
   notes: z.string(),
-  subtotal: z.number(),
-  discountAmount: z.number(),
-  taxableAmount: z.number(),
-  gstAmount: z.number(),
-  cgstAmount: z.number(),
-  sgstAmount: z.number(),
-  igstAmount: z.number(),
-  total: z.number(),
-  paymentTermsDays: z.number(),
+  subtotal: z.number().min(0),
+  discountAmount: z.number().min(0),
+  taxableAmount: z.number().min(0),
+  gstAmount: z.number().min(0),
+  cgstAmount: z.number().min(0),
+  sgstAmount: z.number().min(0),
+  igstAmount: z.number().min(0),
+  total: z.number().min(0),
+  paymentTermsDays: z.number().min(0),
   invoiceDate: z.string(),
   invoiceMonth: z.string(),
   changedFields: z.array(z.string()),
+  // Empty string means no warning. OpenAI structured outputs requires all fields to be required.
+  warning: z.string(),
 });
 
 export const multiInvoiceSchema = z.object({

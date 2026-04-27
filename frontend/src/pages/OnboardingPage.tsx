@@ -9,18 +9,13 @@ import {
   Zap,
   ArrowRight,
   Sparkles,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import { useAuth, UserProfile } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   INDIAN_STATES,
   companySchema,
@@ -32,6 +27,19 @@ import {
   parseIssues,
   fieldClass,
 } from "@/lib/profileValidation";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const emptyProfile: UserProfile = {
   businessName: "",
@@ -52,7 +60,7 @@ type Step = "welcome" | "company" | "address" | "bank";
 
 export function OnboardingPage() {
   const navigate = useNavigate();
-  const { user, getUserProfile, updateUserProfile } = useAuth();
+  const { user, getUserProfile, updateUserProfile, syncUser } = useAuth();
   const [step, setStep] = useState<Step>("welcome");
   const [profile, setProfile] = useState<UserProfile>(emptyProfile);
   const [saving, setSaving] = useState(false);
@@ -60,6 +68,7 @@ export function OnboardingPage() {
   const [companyErrors, setCompanyErrors] = useState<CompanyErrors>({});
   const [addressErrors, setAddressErrors] = useState<AddressErrors>({});
   const [bankErrors, setBankErrors] = useState<BankErrors>({});
+  const [openStateDropdown, setOpenStateDropdown] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -208,11 +217,16 @@ export function OnboardingPage() {
     if (!validateBank()) return;
     setSaving(true);
     try {
+      await syncUser();
       await updateUserProfile({
         ...profile,
         isOnboarded: true,
       });
-      navigate("/dashboard");
+      const updatedProfile = await getUserProfile();
+      if (updatedProfile?.isOnboarded) {
+        setProfile(emptyProfile);
+        navigate("/dashboard");
+      }
     } catch (err) {
       console.error("Onboarding save failed:", err);
     } finally {
@@ -408,23 +422,53 @@ export function OnboardingPage() {
                   required
                   error={addressErrors.state}
                 >
-                  <Select
-                    value={profile.state}
-                    onValueChange={(val) => handleChange("state", val)}
+                  <Popover
+                    open={openStateDropdown}
+                    onOpenChange={setOpenStateDropdown}
                   >
-                    <SelectTrigger
-                      className={fieldClass(!!addressErrors.state)}
-                    >
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INDIAN_STATES.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className={`w-full justify-between ${fieldClass(
+                          !!addressErrors.state
+                        )}`}
+                      >
+                        {profile.state || "Select state"}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+
+                    <PopoverContent className="w-full p-0">
+                      <Command>
+                        <CommandInput placeholder="Search state..." />
+
+                        <CommandEmpty>No state found.</CommandEmpty>
+
+                        <CommandGroup className="max-h-60 overflow-y-auto">
+                          {INDIAN_STATES.map((state) => (
+                            <CommandItem
+                              key={state}
+                              value={state}
+                              onSelect={(currentValue) => {
+                                handleChange("state", currentValue);
+                                setOpenStateDropdown(false);
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${
+                                  profile.state === state
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                }`}
+                              />
+                              {state}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </FieldWrapper>
               </div>
               <FieldWrapper
