@@ -45,7 +45,7 @@ interface Invoice {
   notes?: string;
   subtotal: number;
   total: number;
-  status: "draft" | "sent" | "paid" | "overdue";
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
   createdAt: string;
   dueDate: string;
   originalPrompt?: string;
@@ -56,6 +56,11 @@ const STATUS_CONFIG = {
     label: "Draft",
     class: "bg-gray-100 text-gray-600",
     dot: "bg-gray-400",
+  },
+  confirmed: {
+    label: "Confirmed",
+    class: "text-emerald-600 bg-emerald-50",
+    dot: "bg-emerald-50",
   },
   sent: {
     label: "Sent",
@@ -93,7 +98,8 @@ function formatDate(dateStr: string) {
 function getDaysUntilDue(dueDate: string) {
   const due = new Date(dueDate);
   const now = new Date();
-  return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const diff = due.setHours(0, 0, 0, 0) - now.setHours(0, 0, 0, 0);
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 export function InvoiceViewPage() {
@@ -143,8 +149,12 @@ export function InvoiceViewPage() {
   };
 
   const handleSaveEdit = async (invoiceId: string, data: Partial<Invoice>) => {
-    await updateInvoice(invoiceId, data);
-    setInvoice((prev) => (prev ? { ...prev, ...data } : prev));
+    try {
+      await updateInvoice(invoiceId, data);
+      setInvoice((prev) => (prev ? { ...prev, ...data } : prev));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   if (loading) {
@@ -178,6 +188,11 @@ export function InvoiceViewPage() {
     : null;
   const isDraft = invoice.status === "draft";
   const isPaid = invoice.status === "paid";
+
+  const hasDiscount =
+    invoice.discountType &&
+    invoice.discountType !== "none" &&
+    (invoice.discountValue || 0) > 0;
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -399,32 +414,28 @@ export function InvoiceViewPage() {
                     </span>
                   </div>
 
-                  {invoice.discountType &&
-                    invoice.discountType !== "none" &&
-                    (invoice.discountValue || 0) > 0 && (
-                      <div className="flex justify-between text-sm text-emerald-600">
-                        <span>
-                          Discount
-                          {invoice.discountType === "percent"
-                            ? ` (${invoice.discountValue}%)`
-                            : ""}
-                        </span>
-                        <span className="font-medium">
-                          − {formatINR(invoice.discountAmount || 0)}
-                        </span>
-                      </div>
-                    )}
+                  {hasDiscount && (
+                    <div className="flex justify-between text-sm text-emerald-600">
+                      <span>
+                        Discount
+                        {invoice.discountType === "percent"
+                          ? ` (${invoice.discountValue}%)`
+                          : ""}
+                      </span>
+                      <span className="font-medium">
+                        − {formatINR(invoice.discountAmount || 0)}
+                      </span>
+                    </div>
+                  )}
 
-                  {invoice.discountType &&
-                    invoice.discountType !== "none" &&
-                    (invoice.discountValue || 0) > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Taxable Amount</span>
-                        <span className="text-gray-700 font-medium">
-                          {formatINR(invoice.taxableAmount || invoice.subtotal)}
-                        </span>
-                      </div>
-                    )}
+                  {hasDiscount && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Taxable Amount</span>
+                      <span className="text-gray-700 font-medium">
+                        {formatINR(invoice.taxableAmount || invoice.subtotal)}
+                      </span>
+                    </div>
+                  )}
 
                   {(invoice.gstType || "CGST_SGST") === "CGST_SGST" ? (
                     <>
