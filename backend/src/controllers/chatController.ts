@@ -123,7 +123,7 @@ export async function addMessage(req: Request, res: Response): Promise<void> {
   const clerkId = req.headers["x-clerk-id"] as string;
   const { role, content, invoice } = req.body;
 
-  if (!clerkId || !role || !content) {
+  if (!clerkId || !role || (!content && !invoice)) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
@@ -177,7 +177,7 @@ export async function confirmInvoiceInMessage(
     const message = await ChatMessage.findOneAndUpdate(
       { _id: messageId, sessionId },
       {
-        "invoice.isConfirmed": true,
+        "invoice.status": "confirmed",
         "invoice.invoiceId": invoiceId,
         "invoice.invoiceNumber": invoiceNumber,
       },

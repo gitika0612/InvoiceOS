@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 interface InvoicePanelCardProps {
   messageId: string;
   invoice: ParsedInvoice;
-  isConfirmed: boolean;
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
   invoiceNumber?: string;
   isExpanded: boolean;
   onToggle: () => void;
@@ -33,7 +33,7 @@ function formatINR(amount: number) {
 
 export function InvoicePanelCard({
   invoice,
-  isConfirmed,
+  status,
   invoiceNumber,
   isExpanded,
   onToggle,
@@ -47,7 +47,7 @@ export function InvoicePanelCard({
       className={`
       rounded-2xl border transition-all
       ${
-        isConfirmed
+        status === "confirmed"
           ? "border-emerald-100 bg-emerald-50/50"
           : "border-gray-100 bg-white"
       }
@@ -64,7 +64,7 @@ export function InvoicePanelCard({
           w-8 h-8 rounded-full flex items-center justify-center
           text-xs font-bold flex-shrink-0
           ${
-            isConfirmed
+            status === "confirmed"
               ? "bg-emerald-100 text-emerald-700"
               : "bg-indigo-100 text-indigo-700"
           }
@@ -79,7 +79,7 @@ export function InvoicePanelCard({
             {invoice.clientName}
           </p>
           <p className="text-xs text-gray-400">
-            {isConfirmed && invoiceNumber
+            {status === "confirmed" && invoiceNumber
               ? invoiceNumber
               : `${invoice.lineItems?.length || 0} item${
                   (invoice.lineItems?.length || 0) !== 1 ? "s" : ""
@@ -155,7 +155,7 @@ export function InvoicePanelCard({
           </div>
 
           {/* Actions */}
-          {isConfirmed ? (
+          {status === "confirmed" ? (
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -199,7 +199,7 @@ export function InvoicePanelCard({
           )}
 
           {/* Confirmed badge */}
-          {isConfirmed && invoiceNumber && (
+          {status === "confirmed" && invoiceNumber && (
             <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
               <p className="text-xs font-semibold text-emerald-700">

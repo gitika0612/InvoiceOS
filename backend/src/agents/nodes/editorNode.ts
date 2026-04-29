@@ -22,6 +22,35 @@ const FIELD_LABELS: Record<string, string> = {
   notes: "notes",
 };
 
+function detectGstChange(
+  prompt: string
+): { gstPercent: number; gstType?: "CGST_SGST" | "IGST" } | null {
+  const lower = prompt.toLowerCase();
+
+  // "add gst", "add 18% gst", "apply gst", "put gst", "include gst"
+  const addGst = /\b(add|apply|put|include|set)\b.*\bgst\b/.test(lower);
+  // "remove gst", "no gst", "0% gst"
+  const removeGst =
+    /\b(remove|no|without|zero|0%)\b.*\bgst\b/.test(lower) ||
+    /\bgst.*\b(remove|no|without|zero|0%)\b/.test(lower);
+
+  if (removeGst) return { gstPercent: 0 };
+  if (!addGst) return null;
+
+  // Extract specific percent if mentioned: "add 12% gst", "add gst at 18"
+  const percentMatch = lower.match(
+    /(\d+(?:\.\d+)?)\s*%?\s*gst|gst\s*(?:at|of|@)?\s*(\d+(?:\.\d+)?)\s*%?/
+  );
+  const gstPercent = percentMatch
+    ? parseFloat(percentMatch[1] || percentMatch[2])
+    : 18; // default
+
+  const gstType = lower.includes("igst")
+    ? ("IGST" as const)
+    : ("CGST_SGST" as const);
+  return { gstPercent, gstType };
+}
+
 function buildEditContext(state: InvoiceAgentState): string {
   const base = state.sessionContext || "No existing invoices in this session.";
   const inv = state.parsedInvoice;
@@ -116,7 +145,6 @@ export async function editorNode(
 ): Promise<Partial<InvoiceAgentState>> {
   const ref = state.targetRef || "";
 
-  // No invoices in session — can't edit
   if (
     !state.sessionContext ||
     state.sessionContext === "No existing invoices in this session."
@@ -125,6 +153,32 @@ export async function editorNode(
       agentResult: {
         action: "not_found",
         message: `I couldn't find any invoices in this session to edit. Please create an invoice first, then ask me to edit it.`,
+      },
+    };
+  }
+
+  const gstChange = detectGstChange(state.prompt);
+  if (gstChange && state.parsedInvoice) {
+    const existing = state.parsedInvoice;
+    const updated = recalculateTotals({
+      ...existing,
+      gstPercent: gstChange.gstPercent,
+      gstType: gstChange.gstType ?? existing.gstType,
+    });
+
+    const label =
+      gstChange.gstPercent === 0
+        ? "Removed GST (0%)"
+        : `Added GST (${gstChange.gstPercent}%)`;
+
+    return {
+      parsedInvoice: updated,
+      agentResult: {
+        action: "edited",
+        message: buildEditMessage(updated, ref, [label], ""),
+        invoice: updated,
+        targetRef: ref,
+        changedFields: ["gstPercent", "gstType"],
       },
     };
   }
@@ -164,7 +218,6 @@ export async function editorNode(
 
     if (changedFields.includes("lineItems")) {
       if (isAddOperation(state.prompt)) {
-        // ADD: merge new items into existing, never remove
         const existingKeys = new Set(
           existing.lineItems.map((i) => i.description.toLowerCase().trim())
         );
@@ -207,7 +260,7 @@ export async function editorNode(
         };
       }
 
-      // REPLACE or REMOVE: diff the arrays
+      // REPLACE or REMOVE
       const candidateItems = parsedEdit.lineItems.map((item) => ({
         ...item,
         amount: item.quantity * item.rate,
@@ -253,13 +306,12 @@ export async function editorNode(
       };
     }
 
-    // Non-lineItem changes (GST, terms, discount, date, notes)
+    // Non-lineItem changes
     if (changedFields.length > 0) {
       const updated = recalculateTotals(
         applyNonLineItemChanges(existing, parsedEdit, changedFields)
       );
       const labels = changedFields.map((f) => FIELD_LABELS[f] || f);
-
       return {
         parsedInvoice: updated,
         agentResult: {
@@ -277,7 +329,6 @@ export async function editorNode(
       };
     }
 
-    // Nothing changed
     return {
       agentResult: {
         action: "edited",
@@ -289,8 +340,7 @@ export async function editorNode(
     };
   }
 
-  // ── Case 2: No existing invoice in state — return AI result as-is ──
-  // Frontend will match by targetRef from session invoices
+  // ── Case 2: No existing invoice in state ──
   const finalInvoice = recalculateTotals(parsedEdit);
   const labels = changedFields.map((f) => FIELD_LABELS[f] || f).filter(Boolean);
 

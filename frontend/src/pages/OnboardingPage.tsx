@@ -329,7 +329,7 @@ export function OnboardingPage() {
                 <Input
                   value={profile.businessName}
                   onChange={(e) => handleChange("businessName", e.target.value)}
-                  placeholder="Enter Company / Freelancer Name"
+                  placeholder="Enter company / freelancer name"
                   className={fieldClass(!!companyErrors.businessName)}
                 />
               </FieldWrapper>
@@ -366,7 +366,7 @@ export function OnboardingPage() {
                       e.target.value.replace(/\D/g, "").slice(0, 10)
                     )
                   }
-                  placeholder="Enter Phone No."
+                  placeholder="Enter phone no."
                   inputMode="numeric"
                   maxLength={10}
                   className={fieldClass(!!companyErrors.phone)}
@@ -399,7 +399,7 @@ export function OnboardingPage() {
                 <Input
                   value={profile.address}
                   onChange={(e) => handleChange("address", e.target.value)}
-                  placeholder="Enter Address"
+                  placeholder="Enter address"
                   className={fieldClass(!!addressErrors.address)}
                 />
               </FieldWrapper>
@@ -413,7 +413,7 @@ export function OnboardingPage() {
                         e.target.value.replace(/[^a-zA-Z\s]/g, "")
                       )
                     }
-                    placeholder="Enter City"
+                    placeholder="Enter city"
                     className={fieldClass(!!addressErrors.city)}
                   />
                 </FieldWrapper>
@@ -484,7 +484,7 @@ export function OnboardingPage() {
                       e.target.value.replace(/\D/g, "").slice(0, 6)
                     )
                   }
-                  placeholder="Enter Pincode"
+                  placeholder="Enter pincode"
                   maxLength={6}
                   inputMode="numeric"
                   className={fieldClass(!!addressErrors.pincode)}
@@ -528,7 +528,7 @@ export function OnboardingPage() {
                         e.target.value.replace(/[^a-zA-Z\s&.]/g, "")
                       )
                     }
-                    placeholder="Enter Bank Name"
+                    placeholder="Enter bank name"
                     className={fieldClass(!!bankErrors.bankName)}
                   />
                 </FieldWrapper>
@@ -544,7 +544,7 @@ export function OnboardingPage() {
                         e.target.value.replace(/\D/g, "").slice(0, 18)
                       )
                     }
-                    placeholder="Enter Account Number"
+                    placeholder="Enter account number"
                     maxLength={18}
                     inputMode="numeric"
                     className={fieldClass(!!bankErrors.accountNumber)}
@@ -562,7 +562,7 @@ export function OnboardingPage() {
                           .slice(0, 11)
                       )
                     }
-                    placeholder="Enter IFSC Code"
+                    placeholder="Enter IFSC code"
                     maxLength={11}
                     className={fieldClass(!!bankErrors.ifscCode)}
                   />

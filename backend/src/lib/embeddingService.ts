@@ -116,7 +116,7 @@ export async function findSimilarInvoices(
 // ── Backfill: embed all confirmed invoices that don't have embeddings yet ──
 export async function backfillEmbeddings(userId?: string): Promise<void> {
   const filter: Record<string, any> = {
-    isConfirmed: true,
+    status: "confirmed",
     embeddedAt: { $exists: false },
   };
   if (userId) filter.userId = userId;

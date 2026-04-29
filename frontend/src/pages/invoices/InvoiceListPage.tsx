@@ -12,7 +12,6 @@ import {
   Download,
   Send,
   Trash2,
-  Lock,
   Edit2,
 } from "lucide-react";
 import { downloadInvoicePDF } from "@/lib/downloadPDF";
@@ -22,22 +21,25 @@ import {
   updateInvoice,
 } from "@/lib/api/invoiceApi";
 import { DeleteInvoiceModal } from "@/components/invoice/modals/DeleteInvoiceModal";
-import { EditInvoiceModal } from "@/components/invoice/modals/EditInvoiceModal";
+import {
+  EditInvoiceData,
+  EditInvoiceModal,
+} from "@/components/invoice/modals/EditInvoiceModal";
 import { LineItem } from "@/components/invoice/InvoicePreviewCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SendInvoiceModal } from "@/components/invoice/modals/SendInvoiceModel";
+import { getClientByName } from "@/lib/api/clientApi";
 
-type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
-type FilterTab = "all" | "draft" | "saved" | "sent" | "paid" | "overdue";
+type InvoiceStatus = "draft" | "confirmed" | "sent" | "paid" | "overdue";
+type FilterTab = "all" | "draft" | "confirmed" | "sent" | "paid" | "overdue";
 
 interface Invoice {
   _id: string;
   invoiceNumber: string;
   clientName: string;
-  isConfirmed: boolean;
   lineItems?: LineItem[];
   paymentTermsDays?: number;
   gstPercent: number;
@@ -56,28 +58,76 @@ interface Invoice {
   status: InvoiceStatus;
   createdAt: string;
   dueDate: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  clientCity?: string;
+  clientState?: string;
+  clientPincode?: string;
 }
 
-function getDisplayStatus(inv: Invoice): {
-  label: string;
-  style: string;
-} {
-  if (inv.status === "sent")
-    return { label: "Sent", style: "bg-blue-50 text-blue-600" };
-  if (inv.status === "paid")
-    return { label: "Paid", style: "bg-emerald-50 text-emerald-600" };
-  if (inv.status === "overdue")
-    return { label: "Overdue", style: "bg-red-50 text-red-500" };
-  // status === "draft"
-  if (inv.isConfirmed)
-    return { label: "Confirmed", style: "text-emerald-600 bg-emerald-50" };
-  return { label: "Draft", style: "bg-gray-100 text-gray-500" };
+function getDisplayStatus(inv: Invoice): { label: string; style: string } {
+  switch (inv.status) {
+    case "confirmed":
+      return { label: "Confirmed", style: "text-emerald-600 bg-emerald-50" };
+    case "sent":
+      return { label: "Sent", style: "bg-blue-50 text-blue-600" };
+    case "paid":
+      return { label: "Paid", style: "bg-emerald-50 text-emerald-600" };
+    case "overdue":
+      return { label: "Overdue", style: "bg-red-50 text-red-500" };
+    default:
+      return { label: "Draft", style: "bg-gray-100 text-gray-500" };
+  }
+}
+
+function getInvoicePermissions(status: InvoiceStatus) {
+  switch (status) {
+    case "draft":
+      return {
+        canEdit: true,
+        canSend: false,
+        canDelete: true,
+        reason: "Draft must be confirmed before sending or editing",
+      };
+
+    case "confirmed":
+      return {
+        canEdit: true,
+        canSend: true,
+        canDelete: true,
+      };
+
+    case "sent":
+      return {
+        canEdit: false,
+        canSend: false,
+        canDelete: false,
+        reason: "Invoice already sent",
+      };
+
+    case "paid":
+      return {
+        canEdit: false,
+        canSend: false,
+        canDelete: false,
+        reason: "Paid invoices are locked",
+      };
+
+    case "overdue":
+      return {
+        canEdit: false,
+        canSend: false,
+        canDelete: false,
+        canRemind: true,
+        reason: "Overdue invoice — send reminder instead",
+      };
+  }
 }
 
 const TABS: { label: string; value: FilterTab }[] = [
   { label: "All", value: "all" },
   { label: "Draft", value: "draft" },
-  { label: "Confirmed", value: "saved" },
+  { label: "Confirmed", value: "confirmed" },
   { label: "Sent", value: "sent" },
   { label: "Paid", value: "paid" },
   { label: "Overdue", value: "overdue" },
@@ -114,8 +164,6 @@ function getAvatarColor(name: string) {
 // ── Filter logic ──
 function matchesTab(inv: Invoice, tab: FilterTab): boolean {
   if (tab === "all") return true;
-  if (tab === "draft") return inv.status === "draft" && !inv.isConfirmed;
-  if (tab === "saved") return inv.status === "draft" && inv.isConfirmed;
   return inv.status === tab;
 }
 
@@ -168,11 +216,10 @@ export function InvoiceListPage() {
   });
 
   // Tab counts
-  const tabCounts: Record<FilterTab, number> = {
+  const tabCounts = {
     all: invoices.length,
-    draft: invoices.filter((i) => i.status === "draft" && !i.isConfirmed)
-      .length,
-    saved: invoices.filter((i) => i.status === "draft" && i.isConfirmed).length,
+    draft: invoices.filter((i) => i.status === "draft").length,
+    confirmed: invoices.filter((i) => i.status === "confirmed").length,
     sent: invoices.filter((i) => i.status === "sent").length,
     paid: invoices.filter((i) => i.status === "paid").length,
     overdue: invoices.filter((i) => i.status === "overdue").length,
@@ -221,11 +268,37 @@ export function InvoiceListPage() {
     }
   };
 
-  const handleSaveEdit = async (id: string, data: Partial<Invoice>) => {
+  const handleSaveEdit = async (id: string, data: Partial<EditInvoiceData>) => {
     await updateInvoice(id, data);
     setInvoices((prev) =>
       prev.map((inv) => (inv._id === id ? { ...inv, ...data } : inv))
     );
+  };
+  const handleOpenEditModal = async (inv: Invoice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenMenuId(null);
+
+    let invoiceWithClient: Invoice = { ...inv };
+
+    if (inv.clientName && user) {
+      try {
+        const client = await getClientByName(user.id, inv.clientName);
+        if (client) {
+          invoiceWithClient = {
+            ...invoiceWithClient,
+            clientEmail: client.email || "",
+            clientAddress: client.address || "",
+            clientCity: client.city || "",
+            clientState: client.state || "",
+            clientPincode: client.pincode || "",
+          };
+        }
+      } catch (err) {
+        console.error("Failed to fetch client:", err);
+      }
+    }
+
+    setEditingInvoice(invoiceWithClient);
   };
 
   return (
@@ -370,6 +443,7 @@ export function InvoiceListPage() {
               <tbody className="divide-y divide-gray-50">
                 {filtered.map((inv) => {
                   const display = getDisplayStatus(inv);
+                  const perms = getInvoicePermissions(inv.status);
                   return (
                     <tr
                       key={inv._id}
@@ -468,61 +542,83 @@ export function InvoiceListPage() {
                               </Button>
                               <Button
                                 variant="ghost"
-                                onClick={() => handleDownloadPDF(inv)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownloadPDF(inv);
+                                }}
                                 className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
                               >
                                 <Download className="w-4 h-4 text-gray-400" />
                                 Download PDF
                               </Button>
 
-                              {inv.status === "paid" ? (
+                              <div onClick={(e) => e.stopPropagation()}>
                                 <Button
                                   variant="ghost"
-                                  disabled
-                                  className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-300 cursor-not-allowed"
+                                  disabled={!perms.canEdit}
+                                  title={!perms.canEdit ? perms.reason : ""}
+                                  onClick={
+                                    perms.canEdit
+                                      ? (e) => handleOpenEditModal(inv, e)
+                                      : undefined
+                                  }
+                                  className={`w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm ${
+                                    perms.canEdit
+                                      ? "text-gray-700"
+                                      : "text-gray-300 cursor-not-allowed"
+                                  }`}
                                 >
-                                  <Lock className="w-4 h-4" />
-                                  Locked
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setOpenMenuId(null);
-                                    setEditingInvoice(inv);
-                                  }}
-                                  className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
-                                >
-                                  <Edit2 className="w-4 h-4 text-gray-400" />
+                                  <Edit2 className="w-4 h-4" />
                                   Edit
                                 </Button>
-                              )}
+                              </div>
 
-                              <Button
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                  setSendingInvoice(inv);
-                                }}
-                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-gray-700"
-                              >
-                                <Send className="w-4 h-4 text-gray-400" />
-                                Send
-                              </Button>
-
-                              <Button
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                  setShowDeleteConfirm(inv._id);
-                                }}
-                                className="w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm text-red-500 hover:bg-red-50 hover:text-red-500"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-400" />
-                                Delete
-                              </Button>
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  disabled={!perms.canSend}
+                                  title={!perms.canSend ? perms.reason : ""}
+                                  onClick={
+                                    perms.canSend
+                                      ? () => {
+                                          setOpenMenuId(null);
+                                          setSendingInvoice(inv);
+                                        }
+                                      : undefined
+                                  }
+                                  className={`w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm ${
+                                    perms.canSend
+                                      ? "text-gray-700"
+                                      : "text-gray-300 cursor-not-allowed"
+                                  }`}
+                                >
+                                  <Send className="w-4 h-4" />
+                                  Send
+                                </Button>
+                              </div>
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  disabled={!perms.canDelete}
+                                  title={!perms.canDelete ? perms.reason : ""}
+                                  onClick={
+                                    perms.canDelete
+                                      ? () => {
+                                          setOpenMenuId(null);
+                                          setShowDeleteConfirm(inv._id);
+                                        }
+                                      : undefined
+                                  }
+                                  className={`w-full justify-start gap-3 px-4 py-2.5 h-auto rounded-none text-sm ${
+                                    perms.canDelete
+                                      ? "text-red-500 hover:bg-red-50"
+                                      : "text-gray-300 cursor-not-allowed"
+                                  }`}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  Delete
+                                </Button>
+                              </div>
                             </div>
                           )}
                         </div>

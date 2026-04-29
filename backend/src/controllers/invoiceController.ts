@@ -137,7 +137,7 @@ export async function saveDraftInvoice(
       userId,
       clientName,
       invoiceMonth: resolvedInvoiceMonth,
-      isConfirmed: true,
+      $or: [{ status: "confirmed" }, { isConfirmed: true }],
     });
 
     const invoice = await Invoice.create({
@@ -147,10 +147,19 @@ export async function saveDraftInvoice(
       clientId: clientId || "",
       lineItems: lineItems || [],
       paymentTermsDays: terms,
-      gstPercent: gstPercent || 18,
+      gstPercent:
+        gstPercent !== undefined && gstPercent !== null
+          ? Number(gstPercent)
+          : 18,
       gstType: gstType || "CGST_SGST",
-      cgstPercent: cgstPercent || 9,
-      sgstPercent: sgstPercent || 9,
+      cgstPercent:
+        cgstPercent !== undefined && cgstPercent !== null
+          ? Number(cgstPercent)
+          : 9,
+      sgstPercent:
+        sgstPercent !== undefined && sgstPercent !== null
+          ? Number(sgstPercent)
+          : 9,
       igstPercent: igstPercent || 0,
       cgstAmount: cgstAmount || 0,
       sgstAmount: sgstAmount || 0,
@@ -164,7 +173,6 @@ export async function saveDraftInvoice(
       taxableAmount: taxableAmount || subtotal,
       total,
       status: "draft",
-      isConfirmed: false,
       createdVia: "chat",
       originalPrompt: originalPrompt || "",
       invoiceDate: resolvedInvoiceDate,
@@ -207,7 +215,7 @@ export async function confirmInvoice(
     }
     const updated = await Invoice.findByIdAndUpdate(
       id,
-      { isConfirmed: true },
+      { status: "confirmed" },
       { new: true }
     );
     console.log(`✅ Confirmed: ${updated?.invoiceNumber}`);
@@ -323,7 +331,7 @@ export async function getClientHistory(
     let invoices = await Invoice.find({
       userId,
       clientName: { $regex: new RegExp(`^${clientName}$`, "i") },
-      isConfirmed: true,
+      status: "confirmed",
     })
       .sort({ createdAt: -1 })
       .limit(5)
@@ -370,8 +378,7 @@ export async function getDashboardStats(
         {
           $match: {
             userId: clerkId,
-            isConfirmed: true,
-            status: { $in: ["draft", "sent"] },
+            status: { $in: ["draft", "confirmed", "sent"] },
           },
         },
         { $group: { _id: null, total: { $sum: "$total" } } },
@@ -380,7 +387,6 @@ export async function getDashboardStats(
         {
           $match: {
             userId: clerkId,
-            isConfirmed: true,
             status: "paid",
             updatedAt: { $gte: startOfMonth },
           },
@@ -389,7 +395,6 @@ export async function getDashboardStats(
       ]),
       Invoice.countDocuments({
         userId: clerkId,
-        isConfirmed: true,
         status: "overdue",
       }),
       Invoice.find({ userId: clerkId }).sort({ createdAt: -1 }).limit(5).lean(),

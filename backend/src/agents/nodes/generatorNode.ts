@@ -136,9 +136,16 @@ export async function generatorNode(
     action = "needs_client";
     message = `${typeLabel} of **${formatINR(
       finalInvoice.total
-    )}** ready for **${
-      finalInvoice.clientName
-    }**! 🎉\n\nTo complete the invoice, share their contact details:\n\n**Email** *(required)*\n*(Optional: Address, City, State, Phone, GSTIN)*\n\n💡 \`john@gmail.com, 42 MG Road, Pune, Maharashtra\`\n\nOr say **skip** to create without client details.`;
+    )}** is ready for **${finalInvoice.clientName}**!
+  
+  To complete it, please share the client’s contact details:
+  
+  **Email** (required)  
+  Optional: Address, City, State, Phone, Tax ID
+  
+  💡 Example: john.doe@gmail.com, 123 Market St, San Francisco, CA 94103, (415) 555-0123
+  
+  Or type **skip** to continue without adding details.`;
   }
 
   return {

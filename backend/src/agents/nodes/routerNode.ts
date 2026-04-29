@@ -31,31 +31,33 @@ User prompt: "${state.prompt}"
 
 ROUTING RULES — read carefully:
 
-"new" = create a fresh invoice. Use when:
-  - "Invoice X for ₹Y" with no reference to existing invoice
-  - "Invoice Priya again" (new invoice using her history)
+"new" = create a FRESH invoice. Use when:
+  - "Invoice X for ₹Y" — any prompt that states an amount and a client name
+  - "Invoice Priya ₹50,000 no GST" → NEW (even if Priya already has an invoice in session)
+  - "Bill Rahul for logo design" → NEW
+  - "Invoice Priya again" → NEW (new invoice using her history)
   - "₹1,00,000 — 40% design, 60% development" → NEW invoice with 2 line items (NOT split)
   - Percentage split like "40% X, 60% Y" is ALWAYS "new" with multiple line items
+  - CRITICAL: If the prompt contains a client name + amount/service description with NO edit keywords, it is ALWAYS "new", regardless of whether that client already has an invoice in the session.
 
-"edit" = modify an EXISTING invoice in session. Use when ANY of these appear:
-  - "add [item] to [invoice/last invoice]"
-  - "add [item] in last invoice" 
-  - "add [item] to INV-XXX"
-  - "remove [item] from [invoice]"
-  - "replace [item] in [invoice]"
-  - "add GST to INV-XXX"
-  - "add late fee to [invoice]"
-  - "change [field] in [invoice]"
+"edit" = modify an EXISTING invoice in session. Use ONLY when ALL of these are true:
+  (a) The prompt contains an explicit edit keyword: add / remove / replace / change / update / set / increase / decrease / apply / put / delete / swap
+  (b) The edit keyword clearly refers to modifying an existing invoice, NOT creating a new one
+  Examples:
+  - "add hosting fees to last invoice" → edit
+  - "add GST to INV-2026-001" → edit
+  - "remove logo design from Rahul's invoice" → edit
+  - "change payment terms to 30 days in last invoice" → edit
+  - "add late fee to INV-2026-001" → edit
   - "in last invoice" + any modification = ALWAYS edit
   - "in INV-XXX" + any modification = ALWAYS edit
-  - IMPORTANT: "add hosting fees in last invoice" = edit (not new)
+  IMPORTANT: "Invoice Priya ₹50,000" has NO edit keywords → it is "new", not "edit"
+  IMPORTANT: "Invoice Priya again for ₹50,000" → "new" (again = repeat, not edit)
 
 "copy" = duplicate existing invoice for a DIFFERENT client. Use when:
-  - "same invoice for X" 
+  - "same invoice for X"
   - "copy [client]'s invoice for [other client]"
   - "same as last one but for [client]"
-  - IMPORTANT: "same as last one but for Ankit" when Ankit has his OWN invoices
-    → still copy the most recent invoice that is NOT Ankit's
   - targetRef = source client name or invoice number
 
 "multi" = multiple SEPARATE invoices for different months. Use when:
@@ -69,13 +71,15 @@ ROUTING RULES — read carefully:
   - "divide into N equal invoices"
   - NOT for percentage splits like "40% design, 60% development" (that's "new")
 
-EXAMPLES:
-"Add hosting fees in last invoice" → edit, targetRef = last invoice client/number
+DISAMBIGUATION EXAMPLES:
+"Invoice Priya ₹50,000 no GST" → new (client name + amount = fresh invoice)
 "Invoice Rahul ₹1,00,000 — 40% design, 60% development" → new (single invoice, 2 line items)
+"Add hosting fees in last invoice" → edit, targetRef = last invoice client/number
 "Split Ankit's invoice into 2 parts" → split
 "Create 3 invoices for Jan, Feb, March" → multi, estimatedCount=3
 "Same invoice as last one but for Ankit" → copy
-"Copy Rahul's invoice for Priya" → copy, targetRef = "Rahul"`
+"Copy Rahul's invoice for Priya" → copy, targetRef = "Rahul"
+"Invoice Priya again for ₹50,000 no GST" → new`
   );
 
   let intent = result.intent as AgentIntent;

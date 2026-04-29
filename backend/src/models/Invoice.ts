@@ -25,16 +25,15 @@ export interface IInvoiceDocument extends Document {
   cgstAmount: number;
   sgstAmount: number;
   igstAmount: number;
-  gstAmount: number; // total GST regardless of type
+  gstAmount: number;
   discountType: "percent" | "amount" | "none";
   discountValue: number;
   discountAmount: number;
   notes: string;
   subtotal: number;
-  taxableAmount: number; // subtotal - discountAmount
+  taxableAmount: number;
   total: number;
-  status: "draft" | "sent" | "paid" | "overdue";
-  isConfirmed: boolean;
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
   createdVia: "chat" | "template" | "memory";
   originalPrompt?: string;
   invoiceDate: Date;
@@ -92,10 +91,9 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
     total: { type: Number, required: true },
     status: {
       type: String,
-      enum: ["draft", "sent", "paid", "overdue"],
+      enum: ["draft", "confirmed", "sent", "paid", "overdue"],
       default: "draft",
     },
-    isConfirmed: { type: Boolean, default: false },
     createdVia: {
       type: String,
       enum: ["chat", "template", "memory"],
@@ -126,13 +124,8 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
 );
 
 // ── Indexes ──
-invoiceSchema.index({
-  userId: 1,
-  clientName: 1,
-  isConfirmed: 1,
-  createdAt: -1,
-});
-invoiceSchema.index({ userId: 1, clientId: 1, isConfirmed: 1, createdAt: -1 });
+invoiceSchema.index({ userId: 1, clientName: 1, status: 1, createdAt: -1 });
+invoiceSchema.index({ userId: 1, clientId: 1, status: 1, createdAt: -1 });
 invoiceSchema.index({ userId: 1, invoiceMonth: 1 });
 
 export const Invoice = mongoose.model<IInvoiceDocument>(

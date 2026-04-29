@@ -18,7 +18,7 @@ export function toUIMessage(msg: ChatMessageAPI): UIMessage {
       minute: "2-digit",
     }),
     invoiceMessageId: msg.invoice ? msg._id : undefined,
-    isConfirmed: msg.invoice?.isConfirmed,
+    status: msg.invoice?.status,
     invoiceNumber: msg.invoice?.invoiceNumber,
     dbMessageId: msg._id,
   };

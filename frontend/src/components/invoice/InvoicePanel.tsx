@@ -23,7 +23,7 @@ import {
 export interface SessionInvoice {
   messageId: string;
   invoice: ParsedInvoice;
-  isConfirmed: boolean;
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
   invoiceNumber?: string;
   invoiceId?: string;
   dbMessageId: string;
@@ -33,6 +33,7 @@ interface InvoicePanelProps {
   sessionInvoices: SessionInvoice[];
   selectedMessageId: string | null;
   activeTab?: "draft" | "confirmed";
+  onTabChange?: () => void; // called when user manually clicks a tab — clears external activeTab
   onConfirm: (messageId: string) => void;
   onDiscard: (messageId: string) => void;
   onEdit: (messageId: string, updated: ParsedInvoice) => void;
@@ -79,15 +80,11 @@ function sortMonthKeys(keys: string[]): string[] {
     const aMs = parseMonthKey(a).getTime();
     const bMs = parseMonthKey(b).getTime();
     const nowMs = currentMonthStart.getTime();
-    const aIsCurrent = aMs === nowMs;
-    const bIsCurrent = bMs === nowMs;
-    const aIsFuture = aMs > nowMs;
-    const bIsFuture = bMs > nowMs;
-    if (aIsCurrent) return -1;
-    if (bIsCurrent) return 1;
-    if (aIsFuture && bIsFuture) return aMs - bMs;
-    if (aIsFuture) return -1;
-    if (bIsFuture) return 1;
+    if (aMs === nowMs) return -1;
+    if (bMs === nowMs) return 1;
+    if (aMs > nowMs && bMs > nowMs) return aMs - bMs;
+    if (aMs > nowMs) return -1;
+    if (bMs > nowMs) return 1;
     return bMs - aMs;
   });
 }
@@ -122,6 +119,7 @@ export function InvoicePanel({
   sessionInvoices,
   selectedMessageId,
   activeTab,
+  onTabChange,
   onConfirm,
   onDiscard,
   onEdit,
@@ -142,13 +140,12 @@ export function InvoicePanel({
     Record<string, boolean>
   >({});
 
-  const drafts = [...sessionInvoices.filter((s) => !s.isConfirmed)].reverse();
-  const confirmed = [...sessionInvoices.filter((s) => s.isConfirmed)].reverse();
+  const drafts = sessionInvoices.filter((s) => s.status !== "confirmed");
+  const confirmed = sessionInvoices.filter((s) => s.status === "confirmed");
 
   const latestInvoice = sessionInvoices[sessionInvoices.length - 1];
-  const defaultTab: StatusFilter = latestInvoice?.isConfirmed
-    ? "confirmed"
-    : "draft";
+  const defaultTab: StatusFilter =
+    latestInvoice?.status === "confirmed" ? "confirmed" : "draft";
   const manualTab: StatusFilter = activeTab ?? userSelectedTab ?? defaultTab;
   const baseList = manualTab === "draft" ? drafts : confirmed;
 
@@ -220,7 +217,6 @@ export function InvoicePanel({
     () => sortMonthKeys(Object.keys(grouped)),
     [grouped]
   );
-
   const hasFilters =
     search || selectedClients.size > 0 || selectedMonths.size > 0;
 
@@ -232,7 +228,6 @@ export function InvoicePanel({
       return next;
     });
   };
-
   const toggleMonth = (month: string) => {
     setSelectedMonths((prev) => {
       const next = new Set(prev);
@@ -241,13 +236,11 @@ export function InvoicePanel({
       return next;
     });
   };
-
   const clearAll = () => {
     setSearch("");
     setSelectedClients(new Set());
     setSelectedMonths(new Set());
   };
-
   const toggleGroup = (key: string) =>
     setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -255,11 +248,9 @@ export function InvoicePanel({
 
   return (
     <div
-      className={`
-      relative flex flex-col border-l border-gray-100 bg-[#FAFAFA]
-      transition-all duration-300 flex-shrink-0 h-full
-      ${collapsed ? "w-10" : "w-[500px]"}
-    `}
+      className={`relative flex flex-col border-l border-gray-100 bg-[#FAFAFA] transition-all duration-300 flex-shrink-0 h-full ${
+        collapsed ? "w-10" : "w-[500px]"
+      }`}
     >
       <div className="absolute top-3 right-2 z-20">
         <Button
@@ -278,9 +269,8 @@ export function InvoicePanel({
 
       {!collapsed && (
         <>
-          {/* ── Header ── */}
+          {/* Header */}
           <div className="flex-shrink-0 bg-white border-b border-gray-100">
-            {/* Title */}
             <div className="px-4 pt-4 pb-3 pr-10">
               <p className="text-xs font-bold text-gray-900 uppercase tracking-widest">
                 Session Invoices
@@ -314,13 +304,11 @@ export function InvoicePanel({
                   key={key}
                   onClick={() => {
                     setUserSelectedTab(key);
-
+                    onTabChange?.();
                     const list = key === "draft" ? drafts : confirmed;
-
                     const stillExists = list.find(
                       (item) => item.messageId === selectedMessageId
                     );
-
                     onSelect(
                       stillExists
                         ? stillExists.messageId
@@ -354,7 +342,7 @@ export function InvoicePanel({
               ))}
             </div>
 
-            {/* Search + Filter + Sort — extracted component */}
+            {/* Search + Filter + Sort */}
             <div className="flex items-start px-3 pb-3">
               <div className="flex-1 min-w-0">
                 <InvoicePanelFilters
@@ -372,8 +360,6 @@ export function InvoicePanel({
                   activeFilterCount={activeFilterCount}
                 />
               </div>
-
-              {/* Sort — stays in parent */}
               <Select
                 value={sortBy}
                 onValueChange={(val) => setSortBy(val as SortOption)}
@@ -393,7 +379,7 @@ export function InvoicePanel({
             </div>
           </div>
 
-          {/* ── Invoice list ── */}
+          {/* Invoice list */}
           <ScrollArea className="flex-1 bg-white">
             <div className="py-3">
               {sorted.length === 0 ? (
@@ -507,12 +493,11 @@ export function InvoicePanel({
                                   >
                                     <div
                                       className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-                                        si.isConfirmed
+                                        si.status === "confirmed"
                                           ? "bg-emerald-400"
                                           : "bg-amber-400"
                                       }`}
                                     />
-
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0 flex-1">
@@ -530,12 +515,12 @@ export function InvoicePanel({
                                             )}
                                             <span
                                               className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md ${
-                                                si.isConfirmed
+                                                si.status === "confirmed"
                                                   ? "bg-emerald-50 text-emerald-600"
                                                   : "bg-gray-100 text-gray-600"
                                               }`}
                                             >
-                                              {si.isConfirmed
+                                              {si.status === "confirmed"
                                                 ? "Confirmed"
                                                 : "Draft"}
                                             </span>
@@ -601,7 +586,7 @@ export function InvoicePanel({
                                       <div className="p-3 overflow-y-auto">
                                         <InvoicePreviewCard
                                           invoice={si.invoice}
-                                          isConfirmed={si.isConfirmed}
+                                          status={si.status}
                                           invoiceId={si.invoiceId}
                                           invoiceNumber={si.invoiceNumber}
                                           userName={userName}

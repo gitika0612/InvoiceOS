@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 interface InvoiceMiniCardProps {
   clientName: string;
   total: number;
-  isConfirmed: boolean;
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
   invoiceNumber?: string;
   onClick: () => void;
 }
@@ -21,7 +21,7 @@ function formatINR(amount: number) {
 export function InvoiceMiniCard({
   clientName,
   total,
-  isConfirmed,
+  status,
   invoiceNumber,
   onClick,
 }: InvoiceMiniCardProps) {
@@ -34,7 +34,7 @@ export function InvoiceMiniCard({
         transition-all hover:-translate-y-0.5 text-left w-full max-w-sm group
         justify-start
         ${
-          isConfirmed
+          status === "confirmed"
             ? "border-emerald-200 hover:border-emerald-300 hover:shadow-md"
             : "border-gray-200 hover:border-indigo-300 hover:shadow-md"
         }
@@ -44,10 +44,10 @@ export function InvoiceMiniCard({
       <div
         className={`
         w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0
-        ${isConfirmed ? "bg-emerald-100" : "bg-indigo-50"}
+        ${status === "confirmed" ? "bg-emerald-100" : "bg-indigo-50"}
       `}
       >
-        {isConfirmed ? (
+        {status === "confirmed" ? (
           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
         ) : (
           <FileText className="w-4 h-4 text-gray-500" />
@@ -59,12 +59,12 @@ export function InvoiceMiniCard({
         <div className="flex items-center gap-2">
           <p
             className={`text-sm font-semibold truncate ${
-              isConfirmed ? "text-emerald-900" : "text-gray-900"
+              status === "confirmed" ? "text-emerald-900" : "text-gray-900"
             }`}
           >
             {clientName}
           </p>
-          {isConfirmed && invoiceNumber ? (
+          {status === "confirmed" && invoiceNumber ? (
             <>
               <Badge className="text-xs font-medium text-emerald-600 bg-emerald-50 border-emerald-100 px-2 py-0 rounded-full flex-shrink-0">
                 {invoiceNumber}
@@ -92,18 +92,18 @@ export function InvoiceMiniCard({
         </div>
         <p
           className={`text-xs mt-0.5 ${
-            isConfirmed ? "text-emerald-600" : "text-gray-400"
+            status === "confirmed" ? "text-emerald-600" : "text-gray-400"
           }`}
         >
           {formatINR(total)} ·{" "}
-          {isConfirmed ? "View in panel →" : "Pending confirmation"}
+          {status === "confirmed" ? "View in panel →" : "Pending confirmation"}
         </p>
       </div>
 
       {/* Arrow */}
       <ChevronRight
         className={`w-4 h-4 flex-shrink-0 transition-colors ${
-          isConfirmed
+          status === "confirmed"
             ? "text-emerald-300 group-hover:text-emerald-500"
             : "text-gray-300 group-hover:text-indigo-400"
         }`}

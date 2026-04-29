@@ -32,6 +32,7 @@ import {
   extractClientNameFromPrompt,
   findMatchingInvoices,
 } from "@/lib/invoice-chat/sessionHelpers";
+import { isEditIntent } from "@/lib/invoice-chat/Editintenthelper";
 
 export interface UIMessage {
   _id: string;
@@ -39,7 +40,7 @@ export interface UIMessage {
   content: string;
   timestamp: string;
   invoiceMessageId?: string;
-  isConfirmed?: boolean;
+  status?: "draft" | "confirmed" | "sent" | "paid" | "overdue";
   invoiceNumber?: string;
   dbMessageId?: string;
 }
@@ -53,7 +54,6 @@ interface InvoiceHistoryEntry {
   total?: number;
 }
 
-// Bug 9a: detect generic placeholder client names
 const GENERIC_CLIENT_NAMES = new Set([
   "international client",
   "client",
@@ -72,9 +72,9 @@ function isGenericClientName(name: string): boolean {
 type PendingStatus =
   | "awaiting_client_details"
   | "awaiting_confirm_same"
-  | "awaiting_ambiguity" // copy ambiguity
-  | "awaiting_edit_ambiguity" // edit ambiguity
-  | "awaiting_client_name"; // Bug 9a: need real client name
+  | "awaiting_ambiguity"
+  | "awaiting_edit_ambiguity"
+  | "awaiting_client_name";
 
 interface PendingState {
   status: PendingStatus;
@@ -85,7 +85,7 @@ interface PendingState {
   matchedClient?: ClientAPI | null;
   ambiguityInvoice?: ParsedInvoice;
   ambiguityTargetRef?: string;
-  // For client name flow: we have email but need name
+  ambiguitySourceRef?: string;
   pendingEmail?: string;
 }
 
@@ -93,6 +93,7 @@ export function useInvoiceChat() {
   const { user, isLoaded } = useUser();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sessions, setSessions] = useState<ChatSessionAPI[]>([]);
@@ -137,14 +138,11 @@ export function useInvoiceChat() {
     setPendingState(val);
   };
 
-  const setTabTemporarily = (tab: "draft" | "confirmed") => {
+  // Set the panel tab persistently. InvoicePanel will clear it via onTabChange
+  // when the user manually clicks a different tab.
+  const setActiveTab = (tab: "draft" | "confirmed") => {
     setPanelTab(tab);
-    setTimeout(() => setPanelTab(undefined), 200);
   };
-
-  // ─────────────────────────────────────────────
-  // Session / message loading
-  // ─────────────────────────────────────────────
 
   const loadMessagesForSession = useCallback(
     async (userId: string, sessionId: string) => {
@@ -195,7 +193,7 @@ export function useInvoiceChat() {
                       invoiceDate: db.invoiceDate,
                       invoiceMonth: db.invoiceMonth,
                     } as ParsedInvoice,
-                    isConfirmed: db.isConfirmed,
+                    status: db.status,
                     invoiceNumber: db.invoiceNumber,
                     invoiceId,
                     dbMessageId: m._id,
@@ -209,8 +207,6 @@ export function useInvoiceChat() {
               (inv): inv is SessionInvoice => inv !== null
             );
             setSessionInvoices(invoices);
-
-            // Bug 2 fix: select the LAST invoice in array = most recently created
             if (invoices.length > 0) {
               setSelectedPanelMessageId(
                 invoices[invoices.length - 1].messageId
@@ -257,10 +253,6 @@ export function useInvoiceChat() {
     return session._id;
   };
 
-  // ─────────────────────────────────────────────
-  // Core helpers
-  // ─────────────────────────────────────────────
-
   const addAIMessage = async (
     content: string,
     sessionId: string
@@ -272,16 +264,19 @@ export function useInvoiceChat() {
       "assistant",
       content
     );
-    setMessages((prev) => [
-      ...prev,
-      {
-        _id: saved._id,
-        role: "assistant",
-        content,
-        timestamp: getTime(),
-        dbMessageId: saved._id,
-      },
-    ]);
+    // Only add to UI if user is still on this session
+    if (currentSessionIdRef.current === sessionId) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          _id: saved._id,
+          role: "assistant",
+          content,
+          timestamp: getTime(),
+          dbMessageId: saved._id,
+        },
+      ]);
+    }
     return saved;
   };
 
@@ -298,7 +293,8 @@ export function useInvoiceChat() {
     client: ClientAPI | null,
     sessionId: string,
     originalPrompt: string,
-    autoSelect = true
+    autoSelect = true,
+    suppressGenericMessage = false
   ) => {
     if (!user) return;
     const finalInvoice = recalculateTotals(invoice);
@@ -315,7 +311,12 @@ export function useInvoiceChat() {
       console.error("Failed to save draft:", err);
     }
 
-    const content = `Invoice draft ready for **${finalInvoice.clientName}**. Review it in the side panel.`;
+    // When suppressed, use empty content so no text bubble shows — but message still
+    // exists in DB with invoice attachment so the mini card renders in UI.
+    const content = suppressGenericMessage
+      ? " "
+      : `Invoice draft ready for **${finalInvoice.clientName}**. Review it in the side panel.`;
+
     const savedMsg = await addChatMessage(
       user.id,
       sessionId,
@@ -323,52 +324,66 @@ export function useInvoiceChat() {
       content,
       {
         data: finalInvoice,
-        isConfirmed: false,
+        status: "draft",
         invoiceId: savedDraft?._id || "",
         invoiceNumber: savedDraft?.invoiceNumber || "",
       }
     );
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        _id: savedMsg._id,
-        role: "assistant",
-        content,
-        timestamp: getTime(),
-        invoiceMessageId: savedMsg._id,
-        isConfirmed: false,
-        invoiceNumber: savedDraft?.invoiceNumber,
-        dbMessageId: savedMsg._id,
-      },
-    ]);
+    // Always add to UI so the mini card renders — but only if still on this session.
+    // Empty content = no text bubble shown, just the invoice mini card.
+    if (currentSessionIdRef.current === sessionId) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          _id: savedMsg._id,
+          role: "assistant",
+          content,
+          timestamp: getTime(),
+          invoiceMessageId: savedMsg._id,
+          invoiceNumber: savedDraft?.invoiceNumber,
+          dbMessageId: savedMsg._id,
+        },
+      ]);
+    }
 
     const newInvoice: SessionInvoice = {
       messageId: savedMsg._id,
       invoice: finalInvoice,
-      isConfirmed: false,
+      status: "draft",
       dbMessageId: savedMsg._id,
       invoiceId: savedDraft?._id,
       invoiceNumber: savedDraft?.invoiceNumber,
     };
 
-    setSessionInvoices((prev) => {
-      const updated = [...prev, newInvoice];
-      // Bug 1 fix: only auto-select for single invoice creation.
-      // For multi-invoice batch, caller passes autoSelect=false and selects after all are done.
-      if (autoSelect)
-        setSelectedPanelMessageId(updated[updated.length - 1].messageId);
-      return updated;
-    });
+    // Only update session invoices and panel if user is still on this session
+    if (currentSessionIdRef.current === sessionId) {
+      setSessionInvoices((prev) => {
+        const updated = [...prev, newInvoice];
+        if (autoSelect)
+          setSelectedPanelMessageId(updated[updated.length - 1].messageId);
+        return updated;
+      });
+    }
 
-    setTabTemporarily("draft");
+    setActiveTab("draft");
 
-    if (savedDraft?.hasSimilar && savedDraft.similarInvoiceNumber) {
+    // Always show warning when a confirmed invoice already exists for same client+month.
+    // suppressGenericMessage only hides the "draft ready" text — never the warning.
+    // Multi-invoice batch: individual warnings show inline; consolidated check in multi_created.
+    if (
+      savedDraft?.hasSimilar &&
+      savedDraft.similarInvoiceNumber &&
+      currentSessionIdRef.current === sessionId
+    ) {
       await addAIMessage(
         `⚠️ A confirmed invoice already exists for **${finalInvoice.clientName}** in **${savedDraft.similarInvoiceMonth}** (${savedDraft.similarInvoiceNumber}). This new draft is ${savedDraft.invoiceNumber}. Review both before confirming.`,
         sessionId
       );
     }
+
+    // Return both savedDraft info and the message ID for reliable batch selection
+    return { ...(savedDraft ?? {}), _msgId: savedMsg._id };
   };
 
   const applyEditAndShow = async (
@@ -377,6 +392,16 @@ export function useInvoiceChat() {
     message: string,
     sessionId: string
   ) => {
+    if (target.status === "confirmed") {
+      await addAIMessage(
+        `⚠️ **${target.invoice.clientName}**'s invoice (${
+          target.invoiceNumber ?? "confirmed"
+        }) is already confirmed and cannot be edited via chat. Go to **All Invoices** to edit it directly.`,
+        sessionId
+      );
+      return;
+    }
+
     const finalInvoice = recalculateTotals(updatedInvoice);
 
     if (target.invoiceId) {
@@ -406,10 +431,6 @@ export function useInvoiceChat() {
     await addAIMessage(message, sessionId);
   };
 
-  // ─────────────────────────────────────────────
-  // Handle agent result
-  // ─────────────────────────────────────────────
-
   const handleAgentResult = async (
     result: AgentResult,
     sessionId: string,
@@ -427,7 +448,9 @@ export function useInvoiceChat() {
           invoice,
           result.matchResult?.client ?? null,
           sessionId,
-          originalPrompt
+          originalPrompt,
+          true,
+          true
         );
         break;
       }
@@ -436,8 +459,6 @@ export function useInvoiceChat() {
         if (!invoice) break;
         const matchType = result.matchResult?.type;
 
-        // Bug 9a: if client name is generic (e.g. "International client"),
-        // ask for the real name before asking for email
         if (isGenericClientName(invoice.clientName)) {
           setPending({
             status: "awaiting_client_name",
@@ -449,7 +470,7 @@ export function useInvoiceChat() {
           await addAIMessage(
             `Invoice of **₹${invoice.total.toLocaleString(
               "en-IN"
-            )}** is ready!\n\nWhat's the client's name? (The name will appear on the invoice.)`,
+            )}** is ready!\n\nWhat's the client's name?`,
             sessionId
           );
           break;
@@ -494,7 +515,18 @@ export function useInvoiceChat() {
           await applyEditAndShow(matches[0], invoice, message, sessionId);
           break;
         }
-        // Multiple matches
+        // Multiple matches — but filter out confirmed ones first
+        const editableMatches = matches.filter((m) => m.status !== "confirmed");
+        if (editableMatches.length === 1) {
+          await applyEditAndShow(
+            editableMatches[0],
+            invoice,
+            message,
+            sessionId
+          );
+          break;
+        }
+        // Still ambiguous
         setPending({
           status: "awaiting_edit_ambiguity",
           sessionId,
@@ -510,7 +542,7 @@ export function useInvoiceChat() {
             (m) =>
               `**${m.invoiceNumber ?? "Draft"}** — ${
                 m.invoice.invoiceMonth ?? "unknown"
-              }`
+              }${m.status === "confirmed" ? " (confirmed — cannot edit)" : ""}`
           )
           .join("\n");
         await addAIMessage(
@@ -525,13 +557,12 @@ export function useInvoiceChat() {
       }
 
       case "ambiguous": {
-        // Bug 4 fix: copier found multiple invoices for the source client
-        // Store pending state so next reply (with invoice number) triggers the copy
         setPending({
           status: "awaiting_ambiguity",
           sessionId,
           originalPrompt,
           ambiguityTargetRef: targetRef,
+          ambiguitySourceRef: targetRef, // source client being copied from
           invoice: undefined,
         });
         await addAIMessage(message, sessionId);
@@ -539,7 +570,6 @@ export function useInvoiceChat() {
       }
 
       case "multi_created": {
-        // Bug 1 fix: show summary message first, then create each invoice WITHOUT auto-selecting
         await addAIMessage(message, sessionId);
         const items =
           invoicesWithMatch ??
@@ -548,23 +578,35 @@ export function useInvoiceChat() {
             matchResult: { type: "none" as const, client: null, score: 0 },
           }));
 
+        // Track the first saved message ID for auto-select.
+        // Warnings are now emitted directly in saveDraftAndShow — no need to collect here.
+        let firstBatchMessageId: string | null = null;
+
         for (const { invoice: inv, matchResult } of items) {
-          await saveDraftAndShow(
+          const savedDraft = await saveDraftAndShow(
             inv,
             matchResult.type === "exact" ? matchResult.client : null,
             sessionId,
             originalPrompt,
-            false // never auto-select during batch
+            false, // no auto-select during batch
+            true // suppress individual "draft ready" messages
           );
+
+          if (!firstBatchMessageId && savedDraft?._msgId) {
+            firstBatchMessageId = savedDraft._msgId;
+          }
+
+          // Warnings are emitted directly inside saveDraftAndShow
         }
 
-        // Bug 1 fix: after all are created, select the FIRST one (current/most relevant month)
-        // The first invoice in the batch = the earliest month = most likely current month
-        const allNow = sessionInvoicesRef.current;
-        const batchStart = allNow.length - items.length;
-        const firstOfBatch = allNow[batchStart];
-        if (firstOfBatch) {
-          setSelectedPanelMessageId(firstOfBatch.messageId);
+        if (firstBatchMessageId && currentSessionIdRef.current === sessionId) {
+          setSelectedPanelMessageId(firstBatchMessageId);
+        } else if (currentSessionIdRef.current === sessionId) {
+          // Fallback: use ref (may have race condition on first render)
+          const allNow = sessionInvoicesRef.current;
+          const batchStart = Math.max(0, allNow.length - items.length);
+          const firstOfBatch = allNow[batchStart];
+          if (firstOfBatch) setSelectedPanelMessageId(firstOfBatch.messageId);
         }
         break;
       }
@@ -578,16 +620,11 @@ export function useInvoiceChat() {
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Pending state replies
-  // ─────────────────────────────────────────────
-
   const handlePendingReply = async (reply: string, sessionId: string) => {
     const current = pendingStateRef.current;
     if (!current || !user) return;
     const replyLower = reply.toLowerCase().trim();
 
-    // Bug 9a: collect real client name, then ask for email
     if (current.status === "awaiting_client_name") {
       const realName = reply.trim();
       const updatedInvoice = current.invoice
@@ -600,13 +637,12 @@ export function useInvoiceChat() {
         invoice: updatedInvoice,
       });
       await addAIMessage(
-        `Got it! Invoice for **${realName}**.\n\nPlease share their contact details:\n\n**Email** *(required)*\n*(Optional: Address, City, State, Phone, GSTIN)*\n\nOr say **skip** to create without client details.`,
+        `Got it! Invoice for **${realName}**.\n\nPlease share their contact details:\n\n**Email** *(required)*\n*(Optional: Address, City, State, Phone, GSTIN)*\n\nOr say **skip** to continue without adding details.`,
         sessionId
       );
       return;
     }
 
-    // Same/different for partial match
     if (current.status === "awaiting_confirm_same") {
       const isSame = ["same", "yes", "haan", "confirm", "y"].includes(
         replyLower
@@ -621,7 +657,9 @@ export function useInvoiceChat() {
           current.invoice!,
           current.matchedClient,
           sessionId,
-          current.originalPrompt
+          current.originalPrompt,
+          true,
+          true
         );
       } else {
         setPending({ ...current, status: "awaiting_client_details" });
@@ -633,7 +671,6 @@ export function useInvoiceChat() {
       return;
     }
 
-    // Email / details for new client
     if (current.status === "awaiting_client_details") {
       setPending(null);
       const isSkip = replyLower === "skip" || replyLower.startsWith("skip");
@@ -646,7 +683,9 @@ export function useInvoiceChat() {
           current.invoice!,
           null,
           sessionId,
-          current.originalPrompt
+          current.originalPrompt,
+          true,
+          true
         );
       } else {
         try {
@@ -665,7 +704,9 @@ export function useInvoiceChat() {
             current.invoice!,
             result?.client ?? null,
             sessionId,
-            current.originalPrompt
+            current.originalPrompt,
+            true,
+            true
           );
         } catch {
           await addAIMessage(
@@ -676,32 +717,95 @@ export function useInvoiceChat() {
             current.invoice!,
             null,
             sessionId,
-            current.originalPrompt
+            current.originalPrompt,
+            true,
+            true
           );
         }
       }
       return;
     }
 
-    // Bug 4: copy ambiguity — user replied with which invoice to copy
     if (current.status === "awaiting_ambiguity") {
       setPending(null);
-      // Re-run the AI parse with the specific invoice number appended
-      const refinedPrompt = `${
-        current.originalPrompt
-      } — use invoice ${reply.trim()}`;
-      const result = await parseInvoiceWithAI(
-        refinedPrompt,
-        user.id,
-        buildSessionContext(sessionInvoicesRef.current),
-        undefined,
-        null
+      const specificRef = reply.trim().toUpperCase();
+
+      // Find the source invoice in session by invoice number
+      const sourceInvoice = sessionInvoicesRef.current.find(
+        (s) => s.invoiceNumber?.toUpperCase() === specificRef
       );
-      await handleAgentResult(result, sessionId, current.originalPrompt);
+
+      if (!sourceInvoice) {
+        await addAIMessage(
+          `Couldn't find **${specificRef}** in this session. Please use an invoice number from the list above.`,
+          sessionId
+        );
+        // Re-set pending so user can try again
+        setPending(current);
+        return;
+      }
+
+      // Extract destination client name from the original prompt
+      // e.g. "Copy Rahul's invoice for Priya" → "Priya"
+      // Extract destination client: take word(s) after last " for " in the prompt
+      // e.g. "Copy Rahul's invoice for Priya" → "Priya"
+      const forIndex = current.originalPrompt
+        .toLowerCase()
+        .lastIndexOf(" for ");
+      const destClient =
+        forIndex !== -1
+          ? current.originalPrompt
+              .slice(forIndex + 5)
+              .trim()
+              .split(" ")
+              .slice(0, 3)
+              .join(" ")
+              .trim()
+          : "";
+
+      if (!destClient) {
+        // Fall back to AI if we can't parse destination
+        const sessionContext = buildSessionContext(sessionInvoicesRef.current);
+        const result = await parseInvoiceWithAI(
+          `Copy invoice ${specificRef} — ${current.originalPrompt}`,
+          user.id,
+          sessionContext,
+          undefined,
+          null
+        );
+        await handleAgentResult(result, sessionId, current.originalPrompt);
+        return;
+      }
+
+      // Build the copied invoice with new client name, fresh date
+      const now = new Date();
+      const copiedInvoice: ParsedInvoice = {
+        ...sourceInvoice.invoice,
+        clientName: destClient,
+        invoiceDate: now.toISOString().split("T")[0],
+        invoiceMonth: now.toLocaleDateString("en-IN", {
+          month: "long",
+          year: "numeric",
+        }),
+      };
+
+      await addAIMessage(
+        `Copied **${specificRef}** for **${destClient}**! Total: **₹${copiedInvoice.total.toLocaleString(
+          "en-IN"
+        )}** — review it in the side panel.`,
+        sessionId
+      );
+      await saveDraftAndShow(
+        copiedInvoice,
+        null,
+        sessionId,
+        current.originalPrompt,
+        true,
+        true
+      );
       return;
     }
 
-    // Edit ambiguity resolution
     if (current.status === "awaiting_edit_ambiguity") {
       const isLatest = ["latest", "last", "recent"].includes(replyLower);
       const allMatches = findMatchingInvoices(
@@ -739,10 +843,6 @@ export function useInvoiceChat() {
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Main send handler
-  // ─────────────────────────────────────────────
-
   const handleSend = async (prompt: string) => {
     if (!user) return;
     const tempId = Date.now().toString();
@@ -751,19 +851,29 @@ export function useInvoiceChat() {
 
     try {
       const sessionId = await ensureSession();
+      // Capture the session this request belongs to.
+      // If the user switches chats before the response arrives, we bail out
+      // instead of writing messages into the wrong session.
+      const requestSessionId = sessionId;
+      setLoadingSessionId(sessionId);
+
       const savedUserMsg = await addChatMessage(
         user.id,
         sessionId,
         "user",
         prompt
       );
-      setMessages((prev) =>
-        prev.map((m) =>
-          m._id === tempId
-            ? { ...m, _id: savedUserMsg._id, dbMessageId: savedUserMsg._id }
-            : m
-        )
-      );
+
+      // Only update messages if the user is still on this session
+      if (currentSessionIdRef.current === requestSessionId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m._id === tempId
+              ? { ...m, _id: savedUserMsg._id, dbMessageId: savedUserMsg._id }
+              : m
+          )
+        );
+      }
 
       if (pendingStateRef.current) {
         await handlePendingReply(prompt, sessionId);
@@ -773,7 +883,6 @@ export function useInvoiceChat() {
 
       const sessionContext = buildSessionContext(sessionInvoicesRef.current);
 
-      // Memory context — fetch for the specific client mentioned
       let memoryContext = "No past invoice history for this client.";
       const possibleClient = extractClientNameFromPrompt(prompt);
       if (possibleClient) {
@@ -805,15 +914,33 @@ export function useInvoiceChat() {
         }
       }
 
-      // Pass currently selected invoice as edit context
-      const currentInvoice: ParsedInvoice | null = selectedPanelMessageId
-        ? sessionInvoicesRef.current.find(
-            (s) => s.messageId === selectedPanelMessageId
-          )?.invoice ?? null
-        : sessionInvoicesRef.current.length > 0
-        ? sessionInvoicesRef.current[sessionInvoicesRef.current.length - 1]
-            .invoice ?? null
-        : null;
+      const looksLikeEdit = isEditIntent(prompt);
+      let currentInvoice: ParsedInvoice | null = null;
+
+      if (looksLikeEdit) {
+        // Extract invoice number from prompt first (e.g. "Add GST to INV-2026-047")
+        // Then fall back to client name match, then selected panel invoice.
+        const invNumInPrompt = prompt.match(/INV-\d{4}-\d{3,}/i)?.[0] ?? "";
+        const searchRef = invNumInPrompt || "";
+        const mentionedMatches = searchRef
+          ? findMatchingInvoices(sessionInvoicesRef.current, searchRef)
+          : [];
+        if (mentionedMatches.length === 1) {
+          // Exact match by invoice number in prompt
+          currentInvoice = mentionedMatches[0].invoice;
+        } else if (selectedPanelMessageId) {
+          // Fall back to currently selected panel invoice
+          currentInvoice =
+            sessionInvoicesRef.current.find(
+              (s) => s.messageId === selectedPanelMessageId
+            )?.invoice ?? null;
+        } else if (sessionInvoicesRef.current.length > 0) {
+          // Fall back to most recent invoice
+          currentInvoice =
+            sessionInvoicesRef.current[sessionInvoicesRef.current.length - 1]
+              .invoice ?? null;
+        }
+      }
 
       const result = await parseInvoiceWithAI(
         prompt,
@@ -837,12 +964,9 @@ export function useInvoiceChat() {
       ]);
     } finally {
       setIsLoading(false);
+      setLoadingSessionId(null);
     }
   };
-
-  // ─────────────────────────────────────────────
-  // Panel actions
-  // ─────────────────────────────────────────────
 
   const handleConfirmFromPanel = async (messageId: string) => {
     if (!user || !currentSessionId) return;
@@ -861,20 +985,20 @@ export function useInvoiceChat() {
           s.messageId === messageId
             ? {
                 ...s,
-                isConfirmed: true,
+                status: "confirmed",
                 invoiceNumber: confirmed.invoiceNumber,
               }
             : s
         )
       );
       setSelectedPanelMessageId(messageId);
-      setTabTemporarily("confirmed");
+      setActiveTab("confirmed");
       setMessages((prev) =>
         prev.map((m) =>
           m.invoiceMessageId === messageId
             ? {
                 ...m,
-                isConfirmed: true,
+                status: "confirmed",
                 invoiceNumber: confirmed.invoiceNumber,
               }
             : m
@@ -947,7 +1071,7 @@ export function useInvoiceChat() {
           ? {
               ...m,
               invoiceMessageId: undefined,
-              isConfirmed: undefined,
+              status: undefined,
               invoiceNumber: undefined,
             }
           : m
@@ -1005,9 +1129,13 @@ export function useInvoiceChat() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  // True only when the CURRENT session is processing a request
+  const isCurrentSessionLoading =
+    isLoading && loadingSessionId === currentSessionId;
+
   return {
     user,
-    isLoading,
+    isLoading: isCurrentSessionLoading,
     loadingSessions,
     loadingMessages,
     sessions,
@@ -1017,6 +1145,7 @@ export function useInvoiceChat() {
     selectedPanelMessageId,
     pendingState,
     panelTab,
+    setPanelTab,
     bottomRef,
     messageRefs,
     handleSend,

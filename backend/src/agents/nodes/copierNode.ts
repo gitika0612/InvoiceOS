@@ -44,33 +44,88 @@ function findClientInSession(sessionContext: string, ref: string) {
   );
 }
 
-// Cross-session: fetch most recent confirmed invoice from DB (no client exclusion)
 async function fetchLastConfirmedInvoice(userId: string): Promise<string> {
   try {
-    const last = await Invoice.findOne({ userId, isConfirmed: true })
+    const last = await Invoice.findOne({ userId, status: "confirmed" })
       .sort({ createdAt: -1 })
       .lean();
-
     if (!last) return "";
-
     const items = last.lineItems
       .map(
         (i) =>
           `${i.description} | Qty: ${i.quantity} | Rate: ₹${i.rate} | Amount: ₹${i.amount}`
       )
       .join("\n");
-
     return `Most recent confirmed invoice from database:
 Client: ${last.clientName}
 Invoice Month: ${last.invoiceMonth}
 GST: ${last.gstPercent}% ${last.gstType}
+GST Amount: ₹${last.gstAmount}
 Payment Terms: ${last.paymentTermsDays} days
 Subtotal: ₹${last.subtotal} | Total: ₹${last.total}
-Line Items:
-${items}`;
+Line Items:\n${items}`;
   } catch {
     return "";
   }
+}
+
+function findSourceBlock(sessionContext: string, ref: string): string | null {
+  if (
+    !sessionContext ||
+    sessionContext === "No existing invoices in this session."
+  )
+    return null;
+  const lower = ref.toLowerCase().trim();
+  const blocks = sessionContext.split("---").filter((b) => b.trim());
+
+  const matching: string[] = [];
+
+  for (const block of blocks) {
+    const clientMatch = block.match(/Client:\s*(.+)/i);
+    const invRefMatch = block.match(/Invoice Ref:\s*(.+)/i);
+    if (!clientMatch) continue;
+    const cn = clientMatch[1].trim().toLowerCase();
+    const invRef =
+      invRefMatch?.[1]
+        ?.trim()
+        .replace(/\s*\[MOST RECENT\]/i, "")
+        .toLowerCase() ?? "";
+
+    // Match by exact invoice number
+    if (lower && invRef === lower) {
+      matching.push(block.trim());
+      continue;
+    }
+    // Match by client name (exact only to avoid false positives)
+    if (lower && cn === lower) {
+      matching.push(block.trim());
+    }
+  }
+
+  // Return most recent match (last in array = most recently created)
+  if (matching.length > 0) return matching[matching.length - 1];
+
+  // Fallback: if ref is empty or "last", return the last block (most recent)
+  if (!lower || lower === "last" || lower === "last one") {
+    return blocks.length > 0 ? blocks[blocks.length - 1].trim() : null;
+  }
+
+  return null;
+}
+
+function buildCopySessionContext(sourceBlock: string): string {
+  return `SOURCE INVOICE TO COPY (use ALL values EXACTLY as shown below):
+---
+${sourceBlock}
+---
+
+COPY RULES (CRITICAL):
+- Copy the clientName, lineItems, gstPercent, gstType, paymentTermsDays EXACTLY from above
+- Change only the clientName to the NEW client specified in the prompt
+- If GST% is 0 above → set gstPercent=0, gstAmount=0, total=subtotal
+- If GST% is 18 above → keep 18%
+- Do NOT invent or change any amounts
+- Generate fresh invoiceDate = today, invoiceMonth = current month`;
 }
 
 export async function copierNode(
@@ -81,7 +136,7 @@ export async function copierNode(
     state.sessionContext &&
     state.sessionContext !== "No existing invoices in this session.";
 
-  // Bug 4: multiple session matches for source client → ask which one to copy
+  // Multiple session matches → ask which one to copy
   if (ref && hasSessionInvoices) {
     const matches = findClientInSession(state.sessionContext, ref);
     if (matches.length > 1) {
@@ -101,7 +156,6 @@ export async function copierNode(
     }
   }
 
-  // Bug 3: no session invoices + cross-session keywords → fetch from DB
   const promptLower = state.prompt.toLowerCase();
   const isCrossSession =
     !hasSessionInvoices &&
@@ -113,9 +167,6 @@ export async function copierNode(
   let effectiveSessionContext = state.sessionContext;
 
   if (isCrossSession) {
-    // Fetch the most recent confirmed invoice from DB — no exclusion by client name.
-    // If the last invoice was for Ankit, we copy it. That's the correct behavior:
-    // user said "same as last one but for [someone]" and last = Ankit's → copy Ankit's for the new client.
     const dbContext = await fetchLastConfirmedInvoice(state.userId);
     if (!dbContext) {
       return {
@@ -133,6 +184,11 @@ export async function copierNode(
         message: `I couldn't find any invoices in this session to copy. Please create an invoice first.`,
       },
     };
+  } else {
+    const sourceBlock = findSourceBlock(state.sessionContext, ref || "last");
+    if (sourceBlock) {
+      effectiveSessionContext = buildCopySessionContext(sourceBlock);
+    }
   }
 
   const model = new ChatOpenAI({

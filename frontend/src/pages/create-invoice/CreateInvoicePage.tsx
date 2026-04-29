@@ -17,8 +17,8 @@ export function CreateInvoicePage() {
     messages,
     sessionInvoices,
     selectedPanelMessageId,
-    pendingClientState,
     panelTab,
+    setPanelTab,
     bottomRef,
     messageRefs,
     handleSend,
@@ -27,7 +27,7 @@ export function CreateInvoicePage() {
     handleLoadSession,
     handleConfirmFromPanel,
     handleDiscardFromPanel,
-    handleEditFromPanel, // ← add
+    handleEditFromPanel,
     setSelectedPanelMessageId,
     scrollToMessage,
   } = useInvoiceChat();
@@ -50,11 +50,7 @@ export function CreateInvoicePage() {
               Create Invoice
             </h1>
             <p className="text-xs text-gray-400">
-              {pendingClientState?.status === "awaiting_confirm"
-                ? `Confirming client: ${pendingClientState.clientName}`
-                : pendingClientState?.status === "awaiting_details"
-                ? `Collecting details for: ${pendingClientState.clientName}`
-                : "Describe your invoice in natural language"}
+              Describe your invoice in natural language
             </p>
           </div>
         </header>
@@ -88,7 +84,7 @@ export function CreateInvoicePage() {
                         <InvoiceMiniCard
                           clientName={si.invoice.clientName}
                           total={si.invoice.total}
-                          isConfirmed={si.isConfirmed}
+                          status={si.status}
                           invoiceNumber={si.invoiceNumber}
                           onClick={() => {
                             setSelectedPanelMessageId(si.messageId);
@@ -116,9 +112,10 @@ export function CreateInvoicePage() {
         sessionInvoices={sessionInvoices}
         selectedMessageId={selectedPanelMessageId}
         activeTab={panelTab}
+        onTabChange={() => setPanelTab(undefined)}
         onConfirm={handleConfirmFromPanel}
         onDiscard={handleDiscardFromPanel}
-        onEdit={handleEditFromPanel} // ← use new handler
+        onEdit={handleEditFromPanel}
         onSelect={(messageId) => {
           setSelectedPanelMessageId(messageId);
           if (messageId) scrollToMessage(messageId);

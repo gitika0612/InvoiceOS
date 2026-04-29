@@ -34,7 +34,7 @@ export interface IInvoiceAttachment {
   };
   invoiceId?: string;
   invoiceNumber?: string;
-  isConfirmed: boolean;
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
 }
 
 export interface IChatMessageDocument extends Document {
@@ -91,7 +91,11 @@ const invoiceAttachmentSchema = new Schema({
   },
   invoiceId: { type: String, default: "" },
   invoiceNumber: { type: String, default: "" },
-  isConfirmed: { type: Boolean, default: false },
+  status: {
+    type: String,
+    enum: ["draft", "confirmed", "sent", "paid", "overdue"],
+    default: "draft",
+  },
 });
 
 const chatMessageSchema = new Schema<IChatMessageDocument>(
@@ -99,7 +103,7 @@ const chatMessageSchema = new Schema<IChatMessageDocument>(
     sessionId: { type: String, required: true, index: true },
     userId: { type: String, required: true, index: true },
     role: { type: String, enum: ["user", "assistant"], required: true },
-    content: { type: String, required: true },
+    content: { type: String, default: "" },
     invoice: { type: invoiceAttachmentSchema, default: undefined },
   },
   { timestamps: true }

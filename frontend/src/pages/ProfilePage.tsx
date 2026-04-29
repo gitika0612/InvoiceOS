@@ -243,7 +243,7 @@ export function ProfilePage() {
                 <Input
                   value={profile.businessName}
                   onChange={(e) => handleChange("businessName", e.target.value)}
-                  placeholder="Enter Company Name"
+                  placeholder="Enter company name"
                   className={fieldClass(!!errors.businessName)}
                 />
               </FieldWrapper>
@@ -279,7 +279,7 @@ export function ProfilePage() {
                     e.target.value.replace(/\D/g, "").slice(0, 10)
                   )
                 }
-                placeholder="Enter Phone No."
+                placeholder="Enter phone no."
                 maxLength={10}
                 inputMode="numeric"
                 className={fieldClass(!!errors.phone)}
@@ -296,7 +296,7 @@ export function ProfilePage() {
                 <Input
                   value={profile.address}
                   onChange={(e) => handleChange("address", e.target.value)}
-                  placeholder="Enter Address"
+                  placeholder="Enter address"
                   className={fieldClass(!!errors.address)}
                 />
               </FieldWrapper>
@@ -310,7 +310,7 @@ export function ProfilePage() {
                     e.target.value.replace(/[^a-zA-Z\s]/g, "")
                   )
                 }
-                placeholder="Enter City"
+                placeholder="Enter city"
                 className={fieldClass(!!errors.city)}
               />
             </FieldWrapper>
@@ -372,7 +372,7 @@ export function ProfilePage() {
                     e.target.value.replace(/\D/g, "").slice(0, 6)
                   )
                 }
-                placeholder="Enter PinCode"
+                placeholder="Enter pinCode"
                 maxLength={6}
                 inputMode="numeric"
                 className={fieldClass(!!errors.pincode)}
@@ -396,7 +396,7 @@ export function ProfilePage() {
                     e.target.value.replace(/[^a-zA-Z\s&.]/g, "")
                   )
                 }
-                placeholder="HDFC Bank"
+                placeholder="Enter bank name"
                 className={fieldClass(!!errors.bankName)}
               />
             </FieldWrapper>
@@ -409,7 +409,7 @@ export function ProfilePage() {
                     e.target.value.replace(/\D/g, "").slice(0, 18)
                   )
                 }
-                placeholder="Enter Account Number"
+                placeholder="Enter account number"
                 maxLength={18}
                 inputMode="numeric"
                 className={fieldClass(!!errors.accountNumber)}
@@ -427,7 +427,7 @@ export function ProfilePage() {
                       .slice(0, 11)
                   )
                 }
-                placeholder="Enter IFSC Code"
+                placeholder="Enter IFSC code"
                 maxLength={11}
                 className={fieldClass(!!errors.ifscCode)}
               />

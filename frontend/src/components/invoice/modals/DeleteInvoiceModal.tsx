@@ -38,7 +38,7 @@ export function DeleteInvoiceModal({
           </div>
 
           <AlertDialogHeader className="text-center space-y-0 mb-6">
-            <AlertDialogTitle className="text-lg font-bold text-gray-900 tracking-tight">
+            <AlertDialogTitle className="text-lg font-bold text-gray-900 tracking-tight flex items-center justify-center">
               Delete Invoice
             </AlertDialogTitle>
             <AlertDialogDescription asChild>

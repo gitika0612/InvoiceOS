@@ -13,7 +13,7 @@ export interface InvoiceAttachment {
   data: ParsedInvoice;
   invoiceId?: string;
   invoiceNumber?: string;
-  isConfirmed: boolean;
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
 }
 
 export interface ChatMessageAPI {

@@ -31,7 +31,7 @@ interface RecentInvoice {
   invoiceNumber: string;
   clientName: string;
   total: number;
-  status: "draft" | "sent" | "paid" | "overdue";
+  status: "draft" | "confirmed" | "sent" | "paid" | "overdue";
 }
 
 const NAV_ITEMS = [
@@ -91,6 +91,7 @@ const QUICK_ACTIONS = [
 
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
+  confirmed: "text-emerald-600 bg-emerald-50",
   sent: "bg-blue-50 text-blue-600",
   paid: "bg-emerald-50 text-emerald-600",
   overdue: "bg-red-50 text-red-500",
@@ -516,45 +517,47 @@ export function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {recentInvoices.map((inv) => (
-                        <tr
-                          key={inv._id}
-                          className="hover:bg-gray-50 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/invoices/${inv._id}`)}
-                        >
-                          <td className="px-5 py-3.5">
-                            <span className="text-sm font-semibold text-gray-900">
-                              {inv.invoiceNumber}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-2">
-                              <Avatar className="w-7 h-7 flex-shrink-0">
-                                <AvatarFallback className="bg-indigo-100 text-indigo-600 font-bold text-xs">
-                                  {inv.clientName.charAt(0).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span className="text-sm text-gray-700">
-                                {inv.clientName}
+                      {recentInvoices.map((inv) => {
+                        const displayStatus = inv.status;
+
+                        return (
+                          <tr
+                            key={inv._id}
+                            className="hover:bg-gray-50 transition-colors cursor-pointer"
+                            onClick={() => navigate(`/invoices/${inv._id}`)}
+                          >
+                            <td className="px-5 py-3.5">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {inv.invoiceNumber}
                               </span>
-                            </div>
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <span className="text-sm font-semibold text-gray-900">
-                              ₹{inv.total.toLocaleString("en-IN")}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <Badge
-                              className={`capitalize rounded-full text-xs font-medium ${
-                                STATUS_BADGE[inv.status]
-                              }`}
-                            >
-                              {inv.status}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="w-7 h-7 flex-shrink-0">
+                                  <AvatarFallback className="bg-indigo-100 text-indigo-600 font-bold text-xs">
+                                    {inv.clientName.charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm text-gray-700">
+                                  {inv.clientName}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <span className="text-sm font-semibold text-gray-900">
+                                ₹{inv.total.toLocaleString("en-IN")}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <Badge
+                                className={`capitalize rounded-full text-xs font-medium ${STATUS_BADGE[displayStatus]}`}
+                              >
+                                {displayStatus}
+                              </Badge>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
